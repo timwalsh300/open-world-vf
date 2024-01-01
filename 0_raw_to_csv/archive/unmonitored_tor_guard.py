@@ -1,0 +1,109 @@
+import sys
+import os
+import dpkt
+import socket
+import re
+import multiprocessing
+
+VID_RE = re.compile('_\d+_')
+VISIT_RE = re.compile('\d+_\d+/\d+_\d+_\d+')
+REGION_RE = re.compile('[a-z]+_tor')
+LABELS = open('/home/timothy.walsh/VF/labels.txt', 'r').readlines()
+# number of packets to parse
+PACKETS = 5000
+
+# https://dpkt.readthedocs.io/en/latest/_modules/examples/print_packets.html
+def inet_to_str(inet):
+    try:
+        return socket.inet_ntop(socket.AF_INET, inet)
+    except ValueError:
+        return socket.inet_ntop(socket.AF_INET6, inet)
+
+# this is the function that each process executes, finding all the files
+# in the given subdirectory, parsing each .pcap file according to the
+# constants above and the logic below, and writing a line to a .csv file
+def parse(subdir):
+    files = 0
+    region = 'oregon'
+    output_csv = open('/home/timothy.walsh/VF/df_unmonitored_tor/' + multiprocessing.current_process().name + '_df_unmonitored_tor.csv', 'a')
+    for path, dirnames, filenames in os.walk(subdir):
+        for filename in filenames:
+            if filename == 'capture.pcap':
+                print(multiprocessing.current_process().name, 'doing', path, flush = True)
+                # do what follows for every pcap in the raw dataset
+                input_pcap = dpkt.pcap.Reader(open(os.path.join(path, filename), 'rb'))
+                conversations = {}
+                time_0 = 0.0
+                try:
+                    for timestamp, buf in input_pcap:
+                        if time_0 == 0:
+                            time_0 = timestamp
+                        else:
+                            if timestamp - time_0 > 10.0:
+                                break;
+                        try:
+                            eth = dpkt.ethernet.Ethernet(buf)
+                        except:
+                            print('bad frame')
+                            continue
+                        ip = eth.data
+                        # ignore ARP, etc.
+                        if not isinstance(ip, dpkt.ip.IP):
+                            continue
+                        # determine the distant end and direction
+                        if inet_to_str(ip.src)[:7] == '172.31.':
+                            distant_end = inet_to_str(ip.dst)
+                            direction = 1
+                        else:
+                            distant_end = inet_to_str(ip.src)
+                            direction = -1
+                        # initialize the vector for a new distant end
+                        if distant_end not in conversations:
+                            conversations[distant_end] = []
+                        # append the direction
+                        conversations[distant_end].append(direction)
+                except:
+                    print('bad pcap:', path)
+                    continue
+
+                # iterate over all the conversations to find the one with the
+                # video stream traffic (or Tor connection)
+                heavy_hitter = ''
+                heavy_hitter_packets = 0
+                for distant_end, packets in conversations.items():
+                    if len(packets) > heavy_hitter_packets:
+                        heavy_hitter_packets = len(packets)
+                        heavy_hitter = distant_end
+
+                # write the labeled representation of the video stream to
+                # the .csv file that we'll import into TensorFlow / PyTorch
+                for i in range(PACKETS):
+                    if i < heavy_hitter_packets:
+                        output_csv.write(str(conversations[heavy_hitter][i]) + ',')
+                    else:
+                        output_csv.write('0,')
+                vid_adjusted = '240'
+                platform_genre = 'vimeo,unmonitored'
+                visit = path[45:]
+                output_csv.write(region + ',' + heavy_hitter + ',' + 
+                                 platform_genre + ',' + str(heavy_hitter_packets) +
+                                 ',' + visit + ',' + vid_adjusted + '\n')
+                files += 1       
+    return (multiprocessing.current_process().name + ' did ' + str(files) + ' files from ' + region)
+    
+# this takes two command line arguments...
+# first: full path to a directory containing subdirs to process
+# second: number of CPUs available, should be <= number of subdirs
+#
+# in the same directory as this file, there must be a labels.txt
+#
+# output is a .csv file for each subdir, placed in the same root_path
+# directory
+if __name__ == '__main__':
+    root_path = sys.argv[1]
+    cpus = int(sys.argv[2])
+    subdirs = [f.path for f in os.scandir(root_path) if f.is_dir()]
+    with multiprocessing.Pool(cpus) as pool:
+        iter = pool.imap_unordered(parse, subdirs)
+        for i in iter:
+            print(i)
