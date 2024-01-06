@@ -13,6 +13,7 @@ import dpkt
 import socket
 import re
 import multiprocessing
+import math
 
 # https://dpkt.readthedocs.io/en/latest/_modules/examples/print_packets.html
 def inet_to_str(inet):
@@ -22,8 +23,8 @@ def inet_to_str(inet):
         return socket.inet_ntop(socket.AF_INET6, inet)
 
 # this is the function that each process executes, finding all the files
-# in the given subdirectory, parsing each .pcap file according to the
-# constants above and the logic below, and writing a line to a .csv file
+# in the given subdirectory, parsing each .pcap file according to the global
+# variables at the bottom of this script, and writing a line to a .csv file
 def parse(subdir):
     files = 0
     output_csv = open(OUTPUT_DIR + subdir[len(INPUT_DIR) + 1:] + '.csv', 'w')
@@ -32,18 +33,16 @@ def parse(subdir):
             if filename == 'capture.pcap':
                 # do what follows for every pcap in the raw dataset
                 print(multiprocessing.current_process().name, 'doing', path, flush = True)
-                output = []
                 conversations = {}
                 time_0 = 0.0
-                packets_written = 0
                 try:
                     input_pcap = dpkt.pcap.Reader(open(os.path.join(path, filename), 'rb'))
+                    # pull each frame from the .pcap file
                     for timestamp, buf in input_pcap:
                         if time_0 == 0.0:
                             time_0 = timestamp
-                        else:
-                            if timestamp - time_0 > MAX_TIME:
-                                break
+                        if timestamp - time_0 > MAX_TIME:
+                            break
                         try:
                             eth = dpkt.ethernet.Ethernet(buf)
                         except:
@@ -60,123 +59,194 @@ def parse(subdir):
                         else:
                             distant_end = inet_to_str(ip.src)
                             direction = -1
-                        if PROTOCOL == 'tor' and (distant_end + '\n') not in RELAYS:
-                            continue
-                        if REPRESENTATION == 'sirinam_wf' or REPRESENTATION == 'sirinam_vf':
-                            output.append(direction)
-                            packets_written += 1
-                            if packets_written == POINTS:
-                                break
-                        if REPRESENTATION == 'rahman':
-                            output.append(direction * (timestamp - time_0))
-                            packets_written += 1
-                            if packets_written == POINTS:
-                                break
-                        if REPRESENTATION == 'hayden':
-                            output.append(direction * ip.len)
-                            packets_written += 1
-                            if packets_written == POINTS:
-                                break
-                        if 'schuster' in REPRESENTATION:
-                            # initialize the vectors for a new distant end with the
-                            # number of POINTS all set to 0, record the
-                            # timestamp of the first packet, and initialize the
-                            # timestamp of the last packet that we'll update on
-                            # each appearance of this distant end
+
+                        ######################
+                        # handle Tor traffic #
+                        ######################
+                        if PROTOCOL == 'tor':
+                            # from the perspective of a network-level adversary, there
+                            # is only one conversation for Tor, so initialize one
+                            # only if the dictionary is empty
+                            if not conversations:
+                                conversations['tor'] = {'recv': [0 for i in range(POINTS)],
+                                                        'sent': [0 for i in range(POINTS)],
+                                                        'packets': [],
+                                                        'first_packet': timestamp,
+                                                        'last_packet': 0.0}
+                            # if the distant end is not a relay that we found in the Tor
+                            # consensus, continue with the next frame in the .pcap
+                            if (distant_end + '\n') not in RELAYS:
+                                continue
+                            # convert artificially large packets, due to GRO and GSO pre-processing
+                            # large bursts of traffic, to an estimate of the real number of packets
+                            # that would be on the wire, assuming that TCP tries to fill packets up
+                            # to the 1,500 byte MTU for Ethernet... e.g. a 3,200 byte "packet" would
+                            # be two 1,500 byte packets and one 200 byte packet
+                            real_packets = math.ceil(ip.len / 1500)
+                            if REPRESENTATION == 'sirinam_wf' or REPRESENTATION == 'sirinam_vf':
+                                for i in range(real_packets):
+                                    conversations['tor']['packets'].append(direction)
+                            if REPRESENTATION == 'rahman':
+                                for i in range(real_packets):
+                                    conversations['tor']['packets'].append(direction * (timestamp - time_0))
+                            # Hayden collected his dataset with GRO and GSO turned on and used the
+                            # resulting variation in packet sizes to his advantage
+                            if REPRESENTATION == 'hayden':
+                                conversations['tor']['packets'].append(direction * ip.len)
+                            if 'schuster' in REPRESENTATION:
+                                # determine the appropriate period
+                                period = int((timestamp - time_0) / (1 / PPS))
+                                transport = ip.data
+                                if isinstance(transport, dpkt.tcp.TCP):
+                                    # ignore TCP RST, ACK noise
+                                    if ip.len > 52:
+                                        # remove 20 + 32 bytes of IP and TCP headers, and
+                                        # increment bytes for the appropriate period and direction
+                                        if direction == -1:
+                                            conversations['tor']['recv'][period] += ip.len - 52
+                                        if direction == 1:
+                                            conversations['tor']['sent'][period] += ip.len - 52
+                            conversations['tor']['last_packet'] = timestamp
+
+                        #############################
+                        # handle HTTPS-only traffic #
+                        #############################
+                        else: # PROTOCOL == 'https'
                             if distant_end not in conversations:
                                 conversations[distant_end] = {'recv': [0 for i in range(POINTS)],
                                                               'sent': [0 for i in range(POINTS)],
+                                                              'packets': [],
                                                               'first_packet': timestamp,
                                                               'last_packet': 0.0}
-                            # determine the appropriate period
-                            period = int((timestamp - time_0) / (1 / PPS))
-                            transport = ip.data
-                            if isinstance(transport, dpkt.tcp.TCP):
-                                # ignore TCP RST, ACK noise
-                                if ip.len > 52:
-                                    # remove 20 + 32 bytes of IP and TCP headers, and
-                                    # increment bytes for the appropriate period and direction
-                                    if direction == -1:
-                                        conversations[distant_end]['recv'][period] += ip.len - 52
-                                    if direction == 1:
-                                        conversations[distant_end]['sent'][period] += ip.len - 52
-                                    conversations[distant_end]['last_packet'] = timestamp
-                            if isinstance(transport, dpkt.udp.UDP):
-                                if ip.len > 28:
-                                    # remove 20 + 8 bytes of IP and UDP headers, and
-                                    # increment bytes for the appropriate period and direction
-                                    if direction == -1:
-                                        conversations[distant_end]['recv'][period] += ip.len - 28
-                                    if direction == 1:
-                                        conversations[distant_end]['sent'][period] += ip.len - 28
-                                    conversations[distant_end]['last_packet'] = timestamp
-                except:
-                    print('bad pcap:', path)
+                            # convert artificially large packets, due to GRO and GSO pre-processing
+                            # large bursts of traffic, to an estimate of the real number of packets
+                            # that would be on the wire, assuming that TCP tries to fill packets up
+                            # to the 1,500 byte MTU for Ethernet... e.g. a 3,200 byte "packet" would
+                            # be two 1,500 byte packets and one 200 byte packet
+                            real_packets = math.ceil(ip.len / 1500)
+                            if REPRESENTATION == 'sirinam_wf' or REPRESENTATION == 'sirinam_vf':
+                                for i in range(real_packets):
+                                    conversations[distant_end]['packets'].append(direction)
+                            if REPRESENTATION == 'rahman':
+                                for i in range(real_packets):
+                                    conversations[distant_end]['packets'].append(direction * (timestamp - time_0))
+                            # Hayden collected his dataset with GRO and GSO turned on and used the
+                            # resulting variation in packet sizes to his advantage
+                            if REPRESENTATION == 'hayden':
+                                conversations[distant_end]['packets'].append(direction * ip.len)
+                            if 'schuster' in REPRESENTATION:
+                                # determine the appropriate period
+                                period = int((timestamp - time_0) / (1 / PPS))
+                                transport = ip.data
+                                if isinstance(transport, dpkt.tcp.TCP):
+                                    # ignore TCP RST, ACK noise
+                                    if ip.len > 52:
+                                        # remove 20 + 32 bytes of IP and TCP headers, and
+                                        # increment bytes for the appropriate period and direction
+                                        if direction == -1:
+                                            conversations[distant_end]['recv'][period] += ip.len - 52
+                                        if direction == 1:
+                                            conversations[distant_end]['sent'][period] += ip.len - 52
+                                        conversations[distant_end]['last_packet'] = timestamp
+                                if isinstance(transport, dpkt.udp.UDP):
+                                    if ip.len > 28:
+                                        # remove 20 + 8 bytes of IP and UDP headers, and
+                                        # increment bytes for the appropriate period and direction
+                                        if direction == -1:
+                                            conversations[distant_end]['recv'][period] += ip.len - 28
+                                        if direction == 1:
+                                            conversations[distant_end]['sent'][period] += ip.len - 28
+                            conversations[distant_end]['last_packet'] = timestamp
+
+                except Exception as e:
+                    print(e)
                     continue
 
-                # find the heavy hitter when using the schuster method so that
-                # we can compute some interesting statistics later
-                heavy_hitter = 'null'
-                if 'schuster' in REPRESENTATION:
-                    # iterate over all the conversations to find the one with the
-                    # video stream traffic
-                    heavy_hitter_product = 0.0
-                    for distant_end, flow_info in conversations.items():
-                        duration = (flow_info['last_packet'] - flow_info['first_packet'])
-                        if (sum(flow_info['recv']) + sum(flow_info['sent'])) * duration > heavy_hitter_product:
-                            heavy_hitter_product = (sum(flow_info['recv']) + sum(flow_info['sent'])) * duration
-                            heavy_hitter = distant_end
-                    # abort if the heaviest flow transferred less than 1 MB, which is
-                    # implausible for a video, and probably means it used a Tor connection
-                    # over port 22, triggering our stupid tcpdump filter
-                    if sum(conversations[heavy_hitter]['recv']) < 1000000:
-                        print('<1 MB:', path)
-                        continue
-                if 'schuster' in REPRESENTATION and PROTOCOL == 'https':
-                    for i in range(POINTS):
-                        # two channels representing bytes sent and received per period...
-                        # values in output alternate sent and received, with every pair
-                        # representing one time period
-                        if 'dschuster' in REPRESENTATION:
-                            output.append(conversations[heavy_hitter]['sent'][i])
-                            output.append(conversations[heavy_hitter]['recv'][i])
-                        # just combine sent and received into total bytes per period
-                        else:
-                            output.append(conversations[heavy_hitter]['sent'][i] + conversations[heavy_hitter]['recv'][i])
-                        
-                if 'schuster' in REPRESENTATION and PROTOCOL == 'tor':
-                    # merge the Tor conversations into one output
+                ########################################################################################
+                # now transform the 'conversations' dictionary into an 'output' list and 'output_size' #
+                ########################################################################################
+                if PROTOCOL == 'tor':
+                    heavy_hitter = 'tor'
                     if 'dschuster' in REPRESENTATION:
                         output = [0 for i in range(2 * POINTS)]
-                        for distant_end, flow_info in conversations.items():
-                            for i in range(POINTS):
-                                output[i * 2] += flow_info['sent'][i]
-                                output[(i * 2) + 1] += flow_info['recv'][i]
-                    else:
+                        for i in range(POINTS):
+                            output[i * 2] += conversations['tor']['sent'][i]
+                            output[(i * 2) + 1] += conversations['tor']['recv'][i]
+                        # save the number of bytes for statistical analysis later
+                        output_size = sum(output)
+                    elif 'schuster' in REPRESENTATION:
                         output = [0 for i in range(POINTS)]
-                        for distant_end, flow_info in conversations.items():
-                            for i in range(POINTS):
-                                output[i] += flow_info['sent'][i]
-                                output[i] += flow_info['recv'][i]
-
-                # write the labeled representation of the video stream to
-                # the .csv file that we'll read with Pandas
-                if 'dschuster' in REPRESENTATION:
-                    for i in range(2 * POINTS):
-                        output_csv.write(str(output[i]) + ',')
-                else:
-                    for i in range(POINTS):
-                        if i < len(output):
-                            output_csv.write(str(output[i]) + ',')
+                        for i in range(POINTS):
+                            output[i] += conversations['tor']['sent'][i]
+                            output[i] += conversations['tor']['recv'][i]
+                        # save the number of bytes for statistical analysis later
+                        output_size = sum(output)
+                    else: # sirinam_wf, sirinam_vf, rahman, or hayden
+                        # save the number of packets for statistical analysis later
+                        output_size = len(conversations['tor']['packets'])
+                        if len(conversations['tor']['packets']) >= POINTS:
+                            output = conversations['tor']['packets'][:POINTS]
+                        # pad shorter lengths with zeros
                         else:
-                            output_csv.write('0,')
-                        
+                            output = conversations['tor']['packets']
+                            for i in range(POINTS - len(conversations['tor']['packets'])):
+                                output.append(0)
+
+                else: # PROTOCOL == 'https'
+                    heavy_hitter = ''
+                    heavy_hitter_product = 0.0
+                    if 'dschuster' in REPRESENTATION:
+                        # find heavy_hitter
+                        for distant_end, flow_info in conversations.items():
+                            duration = (flow_info['last_packet'] - flow_info['first_packet'])
+                            if sum(flow_info['recv']) * duration > heavy_hitter_product:
+                                heavy_hitter_product = sum(flow_info['recv']) * duration
+                                heavy_hitter = distant_end
+                        output = [0 for i in range(2 * POINTS)]
+                        for i in range(POINTS):
+                            output[i * 2] += conversations[heavy_hitter]['sent'][i]
+                            output[(i * 2) + 1] += conversations[heavy_hitter]['recv'][i]
+                        # save the number of bytes for statistical analysis later
+                        output_size = sum(output)
+                    elif 'schuster' in REPRESENTATION:
+                        # find heavy_hitter
+                        for distant_end, flow_info in conversations.items():
+                            duration = (flow_info['last_packet'] - flow_info['first_packet'])
+                            if sum(flow_info['recv']) * duration > heavy_hitter_product:
+                                heavy_hitter_product = sum(flow_info['recv']) * duration
+                                heavy_hitter = distant_end
+                        output = [0 for i in range(POINTS)]
+                        for i in range(POINTS):
+                            output[i] += conversations[heavy_hitter]['sent'][i]
+                            output[i] += conversations[heavy_hitter]['recv'][i]
+                        # save the number of bytes for statistical analysis later
+                        output_size = sum(output)
+                    else: # sirinam_wf, sirinam_vf, rahman, or hayden
+                        # find heavy_hitter
+                        for distant_end, flow_info in conversations.items():
+                            duration = (flow_info['last_packet'] - flow_info['first_packet'])
+                            if len(flow_info['packets']) * duration > heavy_hitter_product:
+                                heavy_hitter_product = len(flow_info['packets']) * duration
+                                heavy_hitter = distant_end
+                        # save the number of packets for statistical analysis later
+                        output_size = len(conversations[heavy_hitter]['packets'])
+                        if len(conversations[heavy_hitter]['packets']) >= POINTS:
+                            output = conversations[heavy_hitter]['packets'][:POINTS]
+                        # pad shorter lengths with zeros
+                        else:
+                            output = conversations[heavy_hitter]['packets']
+                            for i in range(POINTS - len(conversations[heavy_hitter]['packets'])):
+                                output.append(0)
+
+                #######################################################
+                # write the 'output' list and labels to the .csv file #
+                #######################################################
+                for i in range(len(output)):
+                    output_csv.write(str(output[i]) + ',')
                 if MONITORED:
                     region = REGION_RE.search(subdir[len(INPUT_DIR):]).group()[:-1]
                 else:
                     region = 'oregon'
-                # total bytes represented for Schuster, and total packets for Sirinam, Rahman, or Hayden
-                output_size = sum(output) if 'schuster' in REPRESENTATION else len(output)
                 visit = VISIT_RE.search(path).group()
                 vid = VID_RE.search(path).group()[1:-1]
                 if 240 <= int(vid) <= 249:
@@ -196,24 +266,23 @@ def parse(subdir):
                 if not MONITORED:
                     vid_adjusted = '240'
                 platform_genre = LABELS[int(vid_adjusted)].strip() if MONITORED else 'vimeo,unmonitored'
-                output_csv.write(region + ',' + heavy_hitter + ',' + 
+                output_csv.write(region + ',' + heavy_hitter + ',' +
                                  platform_genre + ',' + str(output_size) +
                                  ',' + visit + ',' + vid_adjusted + '\n')
-                files += 1       
+                files += 1
     return (multiprocessing.current_process().name + ' did ' + str(files) + ' files from ' + region)
-    
-VID_RE = re.compile('_\d+_')
-VISIT_RE = re.compile('\d+_\d+/\d+_\d+_\d+')
-REGION_RE = re.compile('[a-z]+_')
+
+VID_RE = re.compile(r'_\d+_')
+VISIT_RE = re.compile(r'\d+_\d+/\d+_\d+_\d+')
+REGION_RE = re.compile(r'[a-z]+_')
 # this file contains a 'region,genre' line for each video ID in order
-LABELS = open('/home/timothy.walsh/VF/0_raw_to_csv/labels.txt', 'r').readlines()
+LABELS = open('labels.txt', 'r').readlines()
 # this file contains all the Tor relay IP addresses for May-August 2023
-RELAYS = set(open('/home/timothy.walsh/VF/0_raw_to_csv/relays.txt', 'r').readlines())
+RELAYS = set(open('relays.txt', 'r').readlines())
 REPRESENTATION = sys.argv[3]
 MONITORED = True if sys.argv[4] == 'monitored' else False
 PROTOCOL = sys.argv[5]
-OUTPUT_DIR = ('/home/timothy.walsh/VF/0_raw_to_csv/' + REPRESENTATION + '/' +
-              sys.argv[4] + '_' + PROTOCOL + '/')
+OUTPUT_DIR = (REPRESENTATION + '/' + sys.argv[4] + '_' + PROTOCOL + '/')
 print('output directory will be', OUTPUT_DIR)
 MAX_TIME = 0.0
 POINTS = 0
@@ -221,7 +290,7 @@ POINTS = 0
 PPS = 0
 if PROTOCOL == 'tor' and REPRESENTATION == 'sirinam_wf':
     MAX_TIME = 10.0
-    # here POINTS is the max number of packets to look at
+    # here POINTS is the max number of packets to write out
     POINTS = 5000
 if PROTOCOL == 'https' and REPRESENTATION == 'sirinam_wf':
     MAX_TIME = 5.0
@@ -231,7 +300,7 @@ if REPRESENTATION == 'sirinam_vf' or REPRESENTATION == 'rahman' or REPRESENTATIO
     POINTS = 25000
 if 'schuster' in REPRESENTATION:
     MAX_TIME = 240.0
-    # here POINTS is the number of periods or time slices
+    # here POINTS is the number of periods
     if str.isdigit(REPRESENTATION[-2]):
         PPS = int(REPRESENTATION[-2:])
     else:
