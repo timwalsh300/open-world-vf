@@ -60,6 +60,8 @@ def closed_split(input_csv, data_points, target_label, target_label_map, output_
     y_train = to_categorical(y_train_strings.map(target_label_map), 
                              len(target_label_map))
 
+    visits_train = train_set['visit']
+
     # insert modification here for dschuster
     if dschuster:
         x_val = val_set.drop(next_columns, axis = 1).values.reshape(val_set.shape[0],
@@ -71,6 +73,7 @@ def closed_split(input_csv, data_points, target_label, target_label_map, output_
     y_val = to_categorical(y_val_strings.map(target_label_map), 
                            len(target_label_map))
 
+    visits_val = val_set['visit']
 
     # insert modification here for dschuster
     if dschuster:
@@ -83,9 +86,11 @@ def closed_split(input_csv, data_points, target_label, target_label_map, output_
     y_test = to_categorical(y_test_strings.map(target_label_map),
                             len(target_label_map))
 
-    splits = {'x_train': x_train, 'y_train': y_train,
-              'x_val': x_val, 'y_val': y_val,
-              'x_test': x_test, 'y_test': y_test}
+    visits_test = test_set['visit']
+
+    splits = {'x_train': x_train, 'y_train': y_train, 'visits_train': visits_train,
+              'x_val': x_val, 'y_val': y_val, 'visits_val': visits_val,
+              'x_test': x_test, 'y_test': y_test, 'visits_test': visits_test}
 
     with open(output_name, 'wb') as handle:
         pickle.dump(splits, handle)
@@ -94,7 +99,6 @@ def closed_split(input_csv, data_points, target_label, target_label_map, output_
 
 
 # main
-base_path = '/home/timothy.walsh/VF/'
 data_points_map = {'sirinam_wf': 5000,
                    'sirinam_vf': 25000,
                    'rahman': 25000,
@@ -166,15 +170,13 @@ for i in range(230,240):
 
 print(id_map)
 
-#for representation in ['sirinam_wf', 'sirinam_vf', 'rahman', 'hayden', 'schuster2', 'schuster4', 'schuster8', 'dschuster8', 'schuster16', 'dschuster16']:
-for representation in ['dschuster16']:
+for representation in ['sirinam_wf', 'sirinam_vf', 'rahman', 'hayden', 'schuster2', 'schuster4', 'schuster8', 'dschuster8', 'schuster16', 'dschuster16']:
     dschuster = True if 'dschuster' in representation else False
-#    for protocol in ['https', 'tor']:
-    for protocol in ['tor']:
+    for protocol in ['https', 'tor']:
         for platform in ['youtube', 'facebook', 'vimeo', 'rumble']:
-            big_csv = ('cat ' + base_path + '0_raw_to_csv/' + representation +
+            big_csv = ('cat ../0_raw_to_csv/' + representation +
                        '/monitored_' + protocol + '/*')
-            small_csv = (base_path + '1_csv_to_pkl/' + representation +
+            small_csv = ('../1_csv_to_pkl/' + representation +
                          '_monitored_' + protocol + '_' + platform + '.csv')
             os.system(big_csv + ' | grep ' + platform + ' > ' + small_csv)
             print('finished writing ' + small_csv, flush = True)

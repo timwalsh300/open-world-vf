@@ -112,7 +112,20 @@ def parse(subdir):
                         # handle HTTPS-only traffic #
                         #############################
                         else: # PROTOCOL == 'https'
-                            if distant_end not in conversations:
+                            # for most representations, for HTTPS-only, we'll isolate the streaming
+                            # video traffic, but that doesn't really make sense for our null
+                            # hypothesis sirinam_wf representation which was designed to recognize
+                            # web pages from the collection of objects requested from
+                            # potentially many servers
+                            if not conversations and REPRESENTATION == 'sirinam_wf':
+                                conversations['all'] = {'recv': [0 for i in range(POINTS)],
+                                                        'sent': [0 for i in range(POINTS)],
+                                                        'packets': [],
+                                                        'first_packet': timestamp,
+                                                        'last_packet': 0.0}
+                            # for all other representations, initialize a new dictionary entry
+                            # for the conversation with each unique distant end
+                            if distant_end not in conversations and REPRESENTATION != 'sirinam_wf':
                                 conversations[distant_end] = {'recv': [0 for i in range(POINTS)],
                                                               'sent': [0 for i in range(POINTS)],
                                                               'packets': [],
@@ -124,7 +137,10 @@ def parse(subdir):
                             # to the 1,500 byte MTU for Ethernet... e.g. a 3,200 byte "packet" would
                             # be two 1,500 byte packets and one 200 byte packet
                             real_packets = math.ceil(ip.len / 1500)
-                            if REPRESENTATION == 'sirinam_wf' or REPRESENTATION == 'sirinam_vf':
+                            if REPRESENTATION == 'sirinam_wf':
+                                for i in range(real_packets):
+                                    conversations['all']['packets'].append(direction)
+                            if REPRESENTATION == 'sirinam_vf':
                                 for i in range(real_packets):
                                     conversations[distant_end]['packets'].append(direction)
                             if REPRESENTATION == 'rahman':
@@ -156,7 +172,10 @@ def parse(subdir):
                                             conversations[distant_end]['recv'][period] += ip.len - 28
                                         if direction == 1:
                                             conversations[distant_end]['sent'][period] += ip.len - 28
-                            conversations[distant_end]['last_packet'] = timestamp
+                            if REPRESENTATION == 'sirinam_wf':
+                                conversations['all']['last_packet'] = timestamp
+                            else:
+                                conversations[distant_end]['last_packet'] = timestamp
 
                 except Exception as e:
                     print(e)
