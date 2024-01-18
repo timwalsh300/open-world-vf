@@ -1,3 +1,9 @@
+# This script produced the data that we showed in
+# Figures 3.8, 3.9, and 3.10 in our analysis of the
+# differences between geographic vantage points, in
+# terms of the distances between our clients and the
+# servers to which they connected
+
 import pandas as pd
 import numpy as np
 import geoip2.database
