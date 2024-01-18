@@ -134,6 +134,7 @@ def train_model(representation, protocol, platform):
     with open(BASE_PATH + representation + '_monitored_' + protocol + '_' + platform + '.pkl', 'rb') as handle:
         splits = pickle.load(handle)
     x_train, x_drop, y_train, y_drop = train_test_split(splits['x_train'], splits['y_train'], test_size=0.3, random_state=42)
+    print('x_train shape is', x_train.shape)
     model = create_model(representation, protocol, platform)
     early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
                                                    patience = 10,

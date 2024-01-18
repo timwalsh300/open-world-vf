@@ -9,9 +9,6 @@ import numpy
 # training and evaluation.
 #
 # output is the closed-world performance for each combination
-
-BASE_PATH = '/home/timothy.walsh/VF/1_csv_to_pkl/'
-
 SHAPES = {'sirinam_wf': (5000, 1),
           'sirinam_vf': (25000, 1),
           'rahman': (25000, 1),
@@ -20,9 +17,12 @@ SHAPES = {'sirinam_wf': (5000, 1),
           'schuster4': (960, 1),
           'schuster8': (1920, 1),
           'dschuster8': (1920, 2),
+          'sschuster8': (1920, 1),
           'rschuster8': (1920, 1),
           'schuster16': (3840, 1),
-          'dschuster16': (3840, 2)}
+          'dschuster16': (3840, 2),
+          'sschuster16': (3840, 1),
+          'rschuster16': (3840, 1)}
           
 BEST_HYPERPARAMETERS = {'dschuster16_https_youtube': {'filters': 128, 'kernel': 16, 'conv_stride': 1, 'pool': 8, 'pool_stride': 8, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.4, 'lr': 0.00014585969525380388, 'batch_size': 32},
                         'dschuster16_https_facebook': {'filters': 256, 'kernel': 32, 'conv_stride': 1, 'pool': 4, 'pool_stride': 16, 'conv_dropout': 0.1, 'fc_neurons': 512, 'fc_init': 'he_normal', 'fc_activation': 'relu', 'fc_dropout': 0.1, 'lr': 0.00017903551714471978, 'batch_size': 32},
@@ -134,7 +134,7 @@ def train_model(representation, protocol, platform):
         mod_rep = 'd' + representation[1:]
     else:
         mod_rep = representation
-    with open(BASE_PATH + mod_rep + '_monitored_' + protocol + '_' + platform + '.pkl', 'rb') as handle:
+    with open('../1_csv_to_pkl/' + mod_rep + '_monitored_' + protocol + '_' + platform + '.pkl', 'rb') as handle:
         splits = pickle.load(handle)
     # now select only the channel that we want from the dschuster x splits
     if 'sschuster' in representation:
@@ -172,7 +172,7 @@ def evaluate_model(model, representation, protocol, platform, results):
         mod_rep = 'd' + representation[1:]
     else:
         mod_rep = representation
-    with open(BASE_PATH + mod_rep + '_monitored_' + protocol + '_' + platform + '.pkl', 'rb') as handle:
+    with open('../1_csv_to_pkl/' + mod_rep + '_monitored_' + protocol + '_' + platform + '.pkl', 'rb') as handle:
         splits = pickle.load(handle)
     # now select only the channel that we want from the dschuster x splits
     if 'sschuster' in representation:
@@ -190,10 +190,10 @@ def evaluate_model(model, representation, protocol, platform, results):
     results[representation + '_' + protocol + '_' + platform] = accuracy
 
 results = {}
-#for representation in ['dschuster16', 'schuster16', 'dschuster8', 'schuster8', 'schuster4', 'schuster2', 'hayden', 'rahman', 'sirinam_vf', 'sirinam_wf']:
-for representation in ['rschuster8']:
-    for protocol in ['https', 'tor']:
-        for platform in ['youtube', 'facebook', 'vimeo', 'rumble']:
+#for protocol in ['https', 'tor']:
+for protocol in ['tor']:
+    for platform in ['youtube', 'facebook', 'vimeo', 'rumble']:
+        for representation in ['sirinam_wf', 'sirinam_vf', 'rahman', 'hayden', 'schuster2', 'schuster4', 'schuster8', 'dschuster8', 'schuster16', 'dschuster16']:
             try:
                 model = train_model(representation, protocol, platform)
                 evaluate_model(model, representation, protocol, platform, results)

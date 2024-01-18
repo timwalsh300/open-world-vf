@@ -9,7 +9,7 @@ import sys
 # This takes three arguments on the command line to load the
 # desired dataset splits...
 #
-# 1: sirinam_wf, sirinam_vf, rahman, hayden, or schuster
+# 1: sirinam_wf, sirinam_vf, rahman, hayden, schuster, dschuster
 # 2: tor or https
 # 3: youtube, facebook, vimeo, or rumble
 #
