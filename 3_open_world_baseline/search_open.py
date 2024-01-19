@@ -8,30 +8,31 @@ import sys
 # This takes two arguments on the command line to load the
 # desired dataset splits...
 #
-# 1: sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8
+# 1: sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8
 # 2: tor or https
 #
 # output is the best hyperparameters
 
-BASE_PATH = '/home/timothy.walsh/VF/3_open_world_baseline/'
 REPRESENTATION = sys.argv[1]
 PROTOCOL = sys.argv[2]
-DATA_POINTS = {'sirinam_vf': 25000,
-               'rahman': 25000,
-               'hayden': 25000,
-               'schuster2': 480,
-               'schuster4': 960,
-               'schuster8': 1920}
+
+SHAPES = {'sirinam_vf': (25000, 1),
+          'rahman': (25000, 1),
+          'hayden': (25000, 1),
+          'schuster2': (480, 1),
+          'schuster4': (960, 1),
+          'schuster8': (1920, 1),
+          'dschuster8': (1920, 2)}
 
 def create_model(hyperparameters):
-    model = mymodels.DFNetTunable.build((DATA_POINTS[REPRESENTATION], 1), 61, hyperparameters)
+    model = mymodels.DFNetTunable.build(SHAPES[REPRESENTATION], 61, hyperparameters)
     model.compile(optimizer = keras.optimizers.Adam(learning_rate = hyperparameters['lr']),
                   loss='categorical_crossentropy',
                   metrics=[keras.metrics.Precision(class_id=60), keras.metrics.Recall(class_id=60)])
     return model
 
 def train_model(config):
-    with open(BASE_PATH + REPRESENTATION + '_open_world_' + PROTOCOL + '.pkl', 'rb') as handle:
+    with open('/home/timothy.walsh/VF/3_open_world_baseline/' + REPRESENTATION + '_open_world_' + PROTOCOL + '.pkl', 'rb') as handle:
         splits = pickle.load(handle)
     model = create_model(config)
     history = model.fit(splits['x_train'],

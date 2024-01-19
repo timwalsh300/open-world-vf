@@ -14,7 +14,7 @@
 
     * evaluation batch job for all done
 
-3_open_world_baseline: 61-way classification task with the best representation(s) only. Modify and run the 0_raw_to_csv/unmonitored_raw_to_csv.sh script for best closed-world representations. Create train/val/test splits with csv_to_pkl_open.py for both HTTPS and Tor. Modify and run search_open.sh to do hyperparameter searches with Ray Tune. Outputs results for P, R, FP, FPR on test sets 1k to 64k after choosing a threshold using the validation set with evaluation_open.py. Independently sample train/val/test sets, train a model, and evaluate the model five times with evaluation_open_trials.sh to get mean and standard deviation.
+3_open_world_baseline: 61-way classification task with the best representation(s) only. Modify and run the 0_raw_to_csv/unmonitored_raw_to_csv.sh script for best closed-world representations. Create train/val/test splits with csv_to_pkl_open.py for both HTTPS and Tor. Modify and run search_open.sh to do hyperparameter searches with Ray Tune. Output results for P, R, FP, FPR on test sets 1k to 64k after choosing a threshold using the validation set with evaluation_open.py. Independently sample train/val/test sets, train a model, and evaluate the model five times with evaluation_open_trials.sh to get mean and standard deviation.
 
         * parsing unmonitored set and hyperparameter tuning for schuster8, dschuster8 done
 

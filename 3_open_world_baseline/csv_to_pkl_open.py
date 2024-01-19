@@ -7,14 +7,28 @@ import os
 
 # This is a helper function for open_split() that converts
 # a dataframe into x, y numpy arrays in the appropriate forms
-def get_x_y(df, data_points,
-            target_label,
-            target_label_map,
-            next_columns):
-    x = df.drop(next_columns, axis = 1).values.reshape(df.shape[0], data_points, 1)
+# plus a corresponding list of visit strings for manual
+# error analysis later
+def get_x_y_visits(df,
+                   data_points,
+                   target_label,
+                   target_label_map,
+                   next_columns,
+                   dschuster):
+
+    # insert modification here for dschuster
+    if dschuster:
+        x = df.drop(next_columns, axis = 1).values.reshape(df.shape[0],
+                                                           int(data_points / 2),
+                                                           2)
+    else:
+        x = df.drop(next_columns, axis = 1).values.reshape(df.shape[0],
+                                                           data_points,
+                                                           1)
     y_strings = df[target_label]
     y = to_categorical(y_strings.map(target_label_map), len(target_label_map))
-    return x, y
+    visits = df['visit']
+    return x, y, visits
 
 # This function reads in monitored and unmonitored .csv files, combines them,
 # splits them into numpy arrays for training, validation, and testing for our
@@ -24,7 +38,8 @@ def open_split(monitored_csv_path,
                data_points,
                target_label,
                target_label_map,
-               output_name):
+               output_name,
+               dschuster):
     # Read in the .csv files providing indices as column names for the
     # packets / periods of time (points of data) followed by the six
     # labels, specifying that the points of data
@@ -114,55 +129,64 @@ def open_split(monitored_csv_path,
           '\nvalidation dataframe shape is', val.shape)
           
     output = {}    
-    x_train, y_train = get_x_y(train, data_points, target_label, target_label_map, next_columns)
+    x_train, y_train, visits_train = get_x_y_visits(train, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_train'] = x_train
     output['y_train'] = y_train
+    output['visits_train'] = visits_train
     
-    x_val, y_val = get_x_y(val, data_points, target_label, target_label_map, next_columns)
+    x_val, y_val, visits_val = get_x_y_visits(val, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_val'] = x_val
     output['y_val'] = y_val
-          
+    output['visits_val'] = visits_val
+
     test_1000 =  pandas.concat([monitored_test, unmonitored_1000], ignore_index = True)
     print('test_1000 dataframe shape is', test_1000.shape)
-    x_test_1000, y_test_1000 = get_x_y(test_1000, data_points, target_label, target_label_map, next_columns)
+    x_test_1000, y_test_1000, visits_test_1000 = get_x_y_visits(test_1000, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_test_1000'] = x_test_1000
     output['y_test_1000'] = y_test_1000
+    output['visits_test_1000'] = visits_test_1000
     
     test_2000 =  pandas.concat([monitored_test, unmonitored_2000], ignore_index = True)
     print('test_2000 dataframe shape is', test_2000.shape)
-    x_test_2000, y_test_2000 = get_x_y(test_2000, data_points, target_label, target_label_map, next_columns)
+    x_test_2000, y_test_2000, visits_test_2000 = get_x_y_visits(test_2000, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_test_2000'] = x_test_2000
     output['y_test_2000'] = y_test_2000
+    output['visits_test_2000'] = visits_test_2000
     
     test_4000 =  pandas.concat([monitored_test, unmonitored_4000], ignore_index = True)
     print('test_4000 dataframe shape is', test_4000.shape)
-    x_test_4000, y_test_4000 = get_x_y(test_4000, data_points, target_label, target_label_map, next_columns)
+    x_test_4000, y_test_4000, visits_test_4000 = get_x_y_visits(test_4000, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_test_4000'] = x_test_4000
     output['y_test_4000'] = y_test_4000
+    output['visits_test_4000'] = visits_test_4000
     
     test_8000 =  pandas.concat([monitored_test, unmonitored_8000], ignore_index = True)
     print('test_8000 dataframe shape is', test_8000.shape)
-    x_test_8000, y_test_8000 = get_x_y(test_8000, data_points, target_label, target_label_map, next_columns)
+    x_test_8000, y_test_8000, visits_test_8000 = get_x_y_visits(test_8000, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_test_8000'] = x_test_8000
     output['y_test_8000'] = y_test_8000
+    output['visits_test_8000'] = visits_test_8000
     
     test_16000 =  pandas.concat([monitored_test, unmonitored_16000], ignore_index = True)
     print('test_16000 dataframe shape is', test_16000.shape)
-    x_test_16000, y_test_16000 = get_x_y(test_16000, data_points, target_label, target_label_map, next_columns)
+    x_test_16000, y_test_16000, visits_test_16000 = get_x_y_visits(test_16000, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_test_16000'] = x_test_16000
     output['y_test_16000'] = y_test_16000
+    output['visits_test_16000'] = visits_test_16000
     
     test_32000 =  pandas.concat([monitored_test, unmonitored_32000], ignore_index = True)
     print('test_32000 dataframe shape is', test_32000.shape)
-    x_test_32000, y_test_32000 = get_x_y(test_32000, data_points, target_label, target_label_map, next_columns)
+    x_test_32000, y_test_32000, visits_test_32000 = get_x_y_visits(test_32000, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_test_32000'] = x_test_32000
     output['y_test_32000'] = y_test_32000
+    output['visits_test_32000'] = visits_test_32000
     
     test_64000 =  pandas.concat([monitored_test, unmonitored_64000], ignore_index = True)
     print('test_64000 dataframe shape is', test_64000.shape)
-    x_test_64000, y_test_64000 = get_x_y(test_64000, data_points, target_label, target_label_map, next_columns)
+    x_test_64000, y_test_64000, visits_test_64000 = get_x_y_visits(test_64000, data_points, target_label, target_label_map, next_columns, dschuster)
     output['x_test_64000'] = x_test_64000
     output['y_test_64000'] = y_test_64000
+    output['visits_test_64000'] = visits_test_64000
     
     with open(output_name, 'wb') as handle:
         pickle.dump(output, handle)
@@ -170,7 +194,6 @@ def open_split(monitored_csv_path,
     print('finished writing ' + output_name)
 
 # main
-base_path = '/home/timothy.walsh/VF/'
 data_points_map = {'sirinam_wf': 5000,
                    'sirinam_vf': 25000,
                    'rahman': 25000,
@@ -200,19 +223,20 @@ id_map[240] = 60
 print(id_map)
 
 #for representation in ['sirinam_wf', 'sirinam_vf', 'rahman', 'hayden', 'schuster2', 'schuster4', 'schuster8', 'dschuster8', 'schuster16', 'dschuster16']:
-for representation in ['schuster8']:
+for representation in ['schuster8', 'dschuster8']:
     for protocol in ['https', 'tor']:
         # remember that we're only using Vimeo instances now
-        monitored_csv_path = (base_path + '1_csv_to_pkl/' + representation +
+        monitored_csv_path = ('../1_csv_to_pkl/' + representation +
                               '_monitored_' + protocol + '_vimeo.csv')
-        unmonitored_csv_path = (base_path + '3_open_world_baseline/' +
-                                representation + '_unmonitored_' + protocol + '.csv')
-#        os.system('cat ' + base_path + '0_raw_to_csv/' + representation + 
-#                  '/unmonitored_' + protocol + '/* > ' + unmonitored_csv_path)
-#        print('finished writing ' + unmonitored_csv_path)
+        unmonitored_csv_path = (representation + '_unmonitored_' + protocol + '.csv')
+        os.system('cat ' + '../0_raw_to_csv/' + representation + 
+                  '/unmonitored_' + protocol + '/* > ' + unmonitored_csv_path)
+        print('finished writing ' + unmonitored_csv_path)
+        dschuster = True if 'dschuster' in representation else False
         open_split(monitored_csv_path,
                    unmonitored_csv_path,
                    data_points_map[representation],
                    'id',
                    id_map,
-                   base_path + '3_open_world_baseline/' + representation + '_open_world_' + protocol + '.pkl')
+                   representation + '_open_world_' + protocol + '.pkl',
+                   dschuster)
