@@ -190,8 +190,7 @@ def evaluate_model(model, representation, protocol, platform, results):
     results[representation + '_' + protocol + '_' + platform] = accuracy
 
 results = {}
-#for protocol in ['https', 'tor']:
-for protocol in ['tor']:
+for protocol in ['https', 'tor']:
     for platform in ['youtube', 'facebook', 'vimeo', 'rumble']:
         for representation in ['sirinam_wf', 'sirinam_vf', 'rahman', 'hayden', 'schuster2', 'schuster4', 'schuster8', 'dschuster8', 'schuster16', 'dschuster16']:
             try:
