@@ -55,7 +55,23 @@ def open_split(monitored_csv_path,
     column_names = first_columns + next_columns
     dtype_dict = {str(i): numpy.float32 for i in range(data_points)}
     
-    # start by separating the monitored set into parts
+    # find and read in the unmonitored set .csv file, so if it doesn't
+    # exist we can return early and not read in the monitored set at all
+    print('reading ' + unmonitored_csv_path + ' into a dataframe')
+    dataframe_list = []
+    try:
+        for chunk in pandas.read_csv(unmonitored_csv_path,
+                                     header = None,
+                                     names = column_names,
+                                     dtype = dtype_dict,
+                                     chunksize = 5000):
+            dataframe_list.append(chunk)
+        unmonitored = pandas.concat(dataframe_list, ignore_index = True)
+    except Exception as e:
+        print(e)
+        return
+
+    # read and separate the monitored set into parts
     print('reading ' + monitored_csv_path + ' into a dataframe')
     dataframe_list = []
     for chunk in pandas.read_csv(monitored_csv_path,
@@ -85,15 +101,6 @@ def open_split(monitored_csv_path,
           '\nremaining monitored dataframe shape is', monitored_train_val.shape)
     
     # continue with the unmonitored set
-    print('reading ' + unmonitored_csv_path + ' into a dataframe')
-    dataframe_list = []
-    for chunk in pandas.read_csv(unmonitored_csv_path,
-                                 header = None,
-                                 names = column_names,
-                                 dtype = dtype_dict,
-                                 chunksize = 5000):
-        dataframe_list.append(chunk)
-    unmonitored = pandas.concat(dataframe_list, ignore_index = True)
     # shuffle
     unmonitored = unmonitored.sample(frac = 1).reset_index(drop = True)
     # get the (overlapping) sets of test instances for each world size
@@ -223,14 +230,17 @@ id_map[240] = 60
 print(id_map)
 
 #for representation in ['sirinam_wf', 'sirinam_vf', 'rahman', 'hayden', 'schuster2', 'schuster4', 'schuster8', 'dschuster8', 'schuster16', 'dschuster16']:
-for representation in ['schuster8', 'dschuster8']:
+for representation in ['dschuster16', 'schuster8']:
     for protocol in ['https', 'tor']:
         # remember that we're only using Vimeo instances now
         monitored_csv_path = ('../1_csv_to_pkl/' + representation +
                               '_monitored_' + protocol + '_vimeo.csv')
         unmonitored_csv_path = (representation + '_unmonitored_' + protocol + '.csv')
-        os.system('cat ' + '../0_raw_to_csv/' + representation + 
-                  '/unmonitored_' + protocol + '/* > ' + unmonitored_csv_path)
+        try:
+            os.system('cat ' + '../0_raw_to_csv/' + representation + 
+                      '/unmonitored_' + protocol + '/* > ' + unmonitored_csv_path)
+        except:
+            continue
         print('finished writing ' + unmonitored_csv_path)
         dschuster = True if 'dschuster' in representation else False
         open_split(monitored_csv_path,
@@ -238,5 +248,5 @@ for representation in ['schuster8', 'dschuster8']:
                    data_points_map[representation],
                    'id',
                    id_map,
-                   representation + '_open_world_' + protocol + '.pkl',
+                   representation + '_open_world_' + protocol + '_splits.pkl',
                    dschuster)

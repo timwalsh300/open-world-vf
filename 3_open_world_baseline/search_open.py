@@ -8,7 +8,7 @@ import sys
 # This takes two arguments on the command line to load the
 # desired dataset splits...
 #
-# 1: sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8
+# 1: sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8, schuster16, dschuster16
 # 2: tor or https
 #
 # output is the best hyperparameters
@@ -22,7 +22,9 @@ SHAPES = {'sirinam_vf': (25000, 1),
           'schuster2': (480, 1),
           'schuster4': (960, 1),
           'schuster8': (1920, 1),
-          'dschuster8': (1920, 2)}
+          'dschuster8': (1920, 2),
+          'schuster16': (3840, 1),
+          'dschuster16': (3840, 2)}
 
 def create_model(hyperparameters):
     model = mymodels.DFNetTunable.build(SHAPES[REPRESENTATION], 61, hyperparameters)
@@ -32,7 +34,7 @@ def create_model(hyperparameters):
     return model
 
 def train_model(config):
-    with open('/home/timothy.walsh/VF/3_open_world_baseline/' + REPRESENTATION + '_open_world_' + PROTOCOL + '.pkl', 'rb') as handle:
+    with open('/home/timothy.walsh/VF/3_open_world_baseline/' + REPRESENTATION + '_open_world_' + PROTOCOL + '_splits.pkl', 'rb') as handle:
         splits = pickle.load(handle)
     model = create_model(config)
     history = model.fit(splits['x_train'],

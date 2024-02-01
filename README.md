@@ -14,16 +14,15 @@
 
     * evaluation batch job for all done
 
-3_open_world_baseline: 61-way classification task with the best representation(s) only. Modify and run the 0_raw_to_csv/unmonitored_raw_to_csv.sh script for best closed-world representations. Create train/val/test splits with csv_to_pkl_open.py for both HTTPS and Tor. Modify and run search_open.sh to do hyperparameter searches with Ray Tune. Output results for P, R, FP, FPR on test sets 1k to 64k after choosing a threshold using the validation set with evaluation_open.py. Independently sample train/val/test sets, train a model, and evaluate the model five times with evaluation_open_trials.sh to get mean and standard deviation.
+3_open_world_baseline: 61-way classification task with the best representation(s) only. Modify and run the 0_raw_to_csv/unmonitored_raw_to_csv.sh script for best closed-world data representations. Create train/val/test splits with csv_to_pkl_open.py for both HTTPS and Tor. Modify and run search_open.sh to do hyperparameter searches with Ray Tune. Copy best found hyperparameters into train_open.py and run that to train and save the models. Output P-R curve figures and results for P, R, F1, FP, FPR on test sets 1k to 64k after choosing thresholds using the validation set with evaluation_open.py.
 
-        * parsing unmonitored set and hyperparameter tuning for schuster8, dschuster8 done
+    * parsing unmonitored set, creating train/val/test sets, for schuster8 (Tor) and dschuster16 (HTTPS) done
 
-        - train with early stopping based on validation accuracy or F1
+    * hyperparameter search, training for dschuster16 (HTTPS), schuster8 (Tor) done
 
-        - produce P-R and ROC curves over validation and test sets
+    * produce P-R curves over validation and test sets done
 
-        - select threshold based on minimum acceptable recall on validation set
-
+    * select thresholds based on F1, zero FP, and 0.9 R over the validation set done
 
 4_open_world_enhancements:
 
