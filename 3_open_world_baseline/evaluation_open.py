@@ -138,14 +138,23 @@ def evaluate_model(model, representation, protocol, t_f1, t_zero, t_90):
                 print('PR AUC', pr_auc)
                 roc_auc = auc(fp_rates, tp_rates)
                 print('AUROC', roc_auc)
-                prob_true, prob_pred = calibration_curve(true_binary, scores, n_bins=10, strategy='uniform')
+               
+                # plot and save a calibration curve figure
+                prob_true, prob_pred = calibration_curve(true_binary, scores, n_bins=20, strategy='uniform')
+                bin_edges = numpy.linspace(0, 1, 21)
+                bin_width = numpy.diff(bin_edges)
+                bin_centers = bin_edges[:-1] + bin_width / 2
+                bin_counts = numpy.histogram(scores, bins=bin_edges)[0]
                 plt.figure(figsize=(16, 12))
-                plt.plot(prob_pred, prob_true, marker='o', linestyle='--', color='b', label='Calibration Curve')
+                plt.bar(bin_centers, prob_true, width = bin_width, align = 'center', alpha = 0.5, edgecolor='b', label='Calibration Curve')
+                for i, count in enumerate(bin_counts):
+                    plt.text(bin_centers[i], prob_true[i], f' {count}', verticalalignment= 'bottom', horizontalalignment = 'center')
                 plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfectly Calibrated')
-                plt.xlabel('Predicted Probability')
-                plt.ylabel('True Frequency')
-                plt.title('Calibration Curve (Baseline Model)')
-                plt.legend()
+                plt.xlabel('Predicted Probability of Monitored and Number of Instances', fontsize = 32)
+                plt.ylabel('True Monitored Frequency', fontsize = 32)
+                protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
+                plt.title('Calibration Curve (Baseline Model - ' + protocol_string + ')', fontsize = 32)
+                plt.legend(fontsize = 20)
                 plt.savefig('baseline_cal_curve_' + protocol + '.png', dpi=300)
 
 #for representation in ['dschuster16', 'schuster16', 'dschuster8', 'schuster8', 'schuster4', 'schuster2', 'hayden', 'rahman', 'sirinam_vf', 'sirinam_wf']:
