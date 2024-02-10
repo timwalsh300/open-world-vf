@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 pr_curve_data = {}
 
 def get_pr_curve_val(model, representation, protocol):
-    with open(representation + '_open_world_' + protocol + '_splits.pkl.original', 'rb') as handle:
+    with open(representation + '_open_world_' + protocol + '_splits.pkl', 'rb') as handle:
         splits = pickle.load(handle)
     preds = model.predict(splits['x_val'], verbose = 2)
     scores = []
@@ -39,7 +39,7 @@ def get_threshold_f1(precisions, recalls, thresholds):
 
 # This was my original idea to tune for zero false positives on the validation set
 def get_threshold_zero_fp(model, representation, protocol):
-    with open(representation + '_open_world_' + protocol + '_splits.pkl.original', 'rb') as handle:
+    with open(representation + '_open_world_' + protocol + '_splits.pkl', 'rb') as handle:
         splits = pickle.load(handle)
     preds = model.predict(splits['x_val'], verbose = 2)
     preds_labels = numpy.argmax(preds, axis = 1)
@@ -67,25 +67,23 @@ def get_threshold_zero_fp(model, representation, protocol):
     print('visit and predicted label:', max_false_positive_visit, max_false_positive_label)
     return max_false_positive_prob
 
-# This gives us the threshold where recall nearest to 0.9
+# This gives us the threshold where recall nearest to 0.5
 #
-# in the HTTPS case, this sacrifices some recall for a
-# better P and FPR compared to tuning for the max F1 score
-#
-# in the Tor case this guards against the problem
+# in the HTTPS case, this sacrifices recall for a
+# better P and FPR, and this guards against the case
 # where recall falls off a cliff due to one
 # exceptionally high confidence false positive
-def get_threshold_90_recall(precisions, recalls, thresholds):
-    closest_recall_index = numpy.argmin(numpy.abs(recalls - 0.9))
+def get_threshold_50_recall(precisions, recalls, thresholds):
+    closest_recall_index = numpy.argmin(numpy.abs(recalls - 0.5))
     if closest_recall_index == len(thresholds):
-        threshold_90_recall = thresholds[-1]
+        threshold_50_recall = thresholds[-1]
     else:
-        threshold_90_recall = thresholds[closest_recall_index]
-    print('aiming for a recall of 0.9 on the validation set: recall, precision, and threshold are', recalls[closest_recall_index], precisions[closest_recall_index], threshold_90_recall)
-    return threshold_90_recall
+        threshold_50_recall = thresholds[closest_recall_index]
+    print('aiming for a recall of 0.5 on the validation set: recall, precision, and threshold are', recalls[closest_recall_index], precisions[closest_recall_index], threshold_50_recall)
+    return threshold_50_recall
 
-def evaluate_model(model, representation, protocol, t_f1, t_zero, t_90):
-    with open(representation + '_open_world_' + protocol + '_splits.pkl.original', 'rb') as handle:
+def evaluate_model(model, representation, protocol, t_f1, t_zero, t_50):
+    with open(representation + '_open_world_' + protocol + '_splits.pkl', 'rb') as handle:
         splits = pickle.load(handle)
     for size in ['1000', '2000', '4000', '8000', '16000', '32000', '64000']:
         print(representation, protocol, size)
@@ -105,7 +103,7 @@ def evaluate_model(model, representation, protocol, t_f1, t_zero, t_90):
         pr_curve_data[size[:-3] + 'k'] = (precisions, recalls, thresholds)
 
         # adjust True / False predictions based on the given threshold
-        for threshold in [t_zero, t_90]:
+        for threshold in [t_zero, t_50]:
             preds_binary = []
             for i in range(len(scores)):
                 # lookup the probability for the predicted class for
@@ -161,17 +159,17 @@ def evaluate_model(model, representation, protocol, t_f1, t_zero, t_90):
 for representation in ['dschuster16', 'schuster8']:
     for protocol in ['https', 'tor']:
             try:
-                model = keras.models.load_model(representation + '_open_world_' + protocol + '_model.h5.original')
-                print('found', representation + '_open_world_' + protocol + '_model.h5.original')
+                model = keras.models.load_model(representation + '_open_world_' + protocol + '_model.h5')
+                print('found', representation + '_open_world_' + protocol + '_model.h5')
             except:
-                print('did not find', representation + '_open_world_' + protocol + '_model.h5.original')
+                print('did not find', representation + '_open_world_' + protocol + '_model.h5')
                 continue
             print('getting thresholds over the validations set for', representation, protocol)
             precisions, recalls, thresholds = get_pr_curve_val(model, representation, protocol)
             t_f1 = get_threshold_f1(precisions, recalls, thresholds)
             t_zero = get_threshold_zero_fp(model, representation, protocol)
-            t_90 = get_threshold_90_recall(precisions, recalls, thresholds)
-            evaluate_model(model, representation, protocol, t_f1, t_zero, t_90)
+            t_50 = get_threshold_50_recall(precisions, recalls, thresholds)
+            evaluate_model(model, representation, protocol, t_f1, t_zero, t_50)
 
             # create and save the P-R curve figure
             colors = plt.cm.viridis(numpy.linspace(0, 1, len(pr_curve_data)))
@@ -184,8 +182,8 @@ for representation in ['dschuster16', 'schuster8']:
             plt.title('Precision-Recall Curve (' + protocol_string + ')', fontsize = 32)
             plt.legend(loc = 'lower left', fontsize = 20, title = 'World Size', title_fontsize = 20)
             plt.tick_params(axis='both', which='major', labelsize=20)
-            plt.xlim(0.8, 1)
-            plt.ylim(0.8, 1)
+            plt.xlim(0.5, 1)
+            plt.ylim(0.5, 1)
             plt.grid(True)
             plt.savefig('baseline_pr_curve_' + protocol + '.png', dpi=300)
             pr_curve_data = {}

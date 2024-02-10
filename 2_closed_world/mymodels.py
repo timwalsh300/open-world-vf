@@ -2,26 +2,6 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv1D, BatchNormalization, ELU, MaxPooling1D, Dropout
 from tensorflow.keras.layers import Activation, Flatten, Dense
 
-# This reproduces the original Beauty and the Burst model architecture and
-# hyperparameters from the work of Schuster et al. The input_shape should be
-# (960, 1) for 1/4 second periods over 4 minutes, but it could be different.
-# We should probably use MinMaxScaler on the input. Doesn't work yet.
-class BeautyNet:
-    @staticmethod
-    def build(input_shape, classes):
-        model = Sequential()
-        model.add(Conv1D(32, kernel_size=16, activation='relu', input_shape=input_shape))
-        model.add(Conv1D(32, kernel_size=16, activation='relu'))
-        model.add(Conv1D(32, kernel_size=16, activation='relu'))
-        model.add(Dropout(0.5))
-        model.add(MaxPooling1D(pool_size=6))
-        model.add(Dropout(0.7))
-        model.add(Flatten())
-        model.add(Dense(64, activation='relu'))
-        model.add(Dropout(0.5))
-        model.add(Dense(classes, activation='softmax'))
-        return model
-
 # This is the original Deep Fingerprinting model architecture and hyperparameters
 # from the work of Sirinam et al. The input shape should be (5000, 1) for website
 # or sub-page fingerprinting based on just a few seconds of traffic.

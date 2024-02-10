@@ -55,22 +55,6 @@ def open_split(monitored_csv_path,
     column_names = first_columns + next_columns
     dtype_dict = {str(i): numpy.float32 for i in range(data_points)}
     
-    # find and read in the unmonitored set .csv file, so if it doesn't
-    # exist we can return early and not read in the monitored set at all
-    print('reading ' + unmonitored_csv_path + ' into a dataframe')
-    dataframe_list = []
-    try:
-        for chunk in pandas.read_csv(unmonitored_csv_path,
-                                     header = None,
-                                     names = column_names,
-                                     dtype = dtype_dict,
-                                     chunksize = 5000):
-            dataframe_list.append(chunk)
-        unmonitored = pandas.concat(dataframe_list, ignore_index = True)
-    except Exception as e:
-        print(e)
-        return
-
     # read and separate the monitored set into parts
     print('reading ' + monitored_csv_path + ' into a dataframe')
     dataframe_list = []
@@ -81,13 +65,12 @@ def open_split(monitored_csv_path,
                                  chunksize = 5000):
         dataframe_list.append(chunk)
     monitored = pandas.concat(dataframe_list, ignore_index = True)
+
     # shuffle
     monitored = monitored.sample(frac = 1).reset_index(drop = True)
-    # find only the us-west-2 (Oregon) instances
-    monitored_oregon = monitored[monitored['region'] == 'oregon']
     # get the first 10 instances of each of the 60 videos to put
     # in our test sets
-    grouped = monitored_oregon.groupby(target_label)
+    grouped = monitored.groupby(target_label)
     monitored_test = pandas.DataFrame()
     for name, group in grouped:
         temp = group.head(10)
@@ -96,11 +79,20 @@ def open_split(monitored_csv_path,
     # so we're left with a dataframe to split into training and validation
     monitored_train_val = monitored.drop(monitored_test.index)
     print('monitored dataframe shape is', monitored.shape,
-          '\noregon monitored dataframe shape is', monitored_oregon.shape,
           '\nmonitored test dataframe shape is', monitored_test.shape,
           '\nremaining monitored dataframe shape is', monitored_train_val.shape)
     
-    # continue with the unmonitored set
+    # find and read in the unmonitored set .csv file
+    print('reading ' + unmonitored_csv_path + ' into a dataframe')
+    dataframe_list = []
+    for chunk in pandas.read_csv(unmonitored_csv_path,
+                                 header = None,
+                                 names = column_names,
+                                 dtype = dtype_dict,
+                                 chunksize = 5000):
+        dataframe_list.append(chunk)
+    unmonitored = pandas.concat(dataframe_list, ignore_index = True)
+
     # shuffle
     unmonitored = unmonitored.sample(frac = 1).reset_index(drop = True)
     # get the (overlapping) sets of test instances for each world size
@@ -232,16 +224,18 @@ print(id_map)
 #for representation in ['sirinam_wf', 'sirinam_vf', 'rahman', 'hayden', 'schuster2', 'schuster4', 'schuster8', 'dschuster8', 'schuster16', 'dschuster16']:
 for representation in ['dschuster16', 'schuster8']:
     for protocol in ['https', 'tor']:
-        # remember that we're only using Vimeo instances now
-        monitored_csv_path = ('../1_csv_to_pkl/' + representation +
-                              '_monitored_' + protocol + '_vimeo.csv')
         unmonitored_csv_path = (representation + '_unmonitored_' + protocol + '.csv')
-        try:
-            os.system('cat ' + '../0_raw_to_csv/' + representation + 
-                      '/unmonitored_' + protocol + '/* > ' + unmonitored_csv_path)
-        except:
+        os.system('cat ' + '../0_raw_to_csv/' + representation + 
+                  '/unmonitored_' + protocol + '/* > ' + unmonitored_csv_path)
+        if os.stat(unmonitored_csv_path).st_size == 0:
             continue
         print('finished writing ' + unmonitored_csv_path)
+        monitored_csv_path = (representation + '_monitored_' + protocol + '.csv')
+        # remember that we're only using Vimeo from Oregon instances now
+        os.system('cat ' + '../0_raw_to_csv/' + representation + 
+                  '/monitored_' + protocol + '/oregon_' + protocol +
+                  '.csv | grep vimeo > ' + monitored_csv_path)
+        print('finished writing ' + monitored_csv_path)
         dschuster = True if 'dschuster' in representation else False
         open_split(monitored_csv_path,
                    unmonitored_csv_path,
