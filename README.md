@@ -22,16 +22,16 @@
 
     * produce P-R curves over validation and test sets done
 
-    * select thresholds based on F1, zero FP, and 0.9 R over the validation set done
+    * select thresholds based on zero FP and 0.5 R over the validation set done
 
 4_open_world_enhancements:
 
-    - temperature scaling, threshold for calibrated softmax probability tuned on the validation set, five independent trials
+    * temperature scaling, threshold for calibrated max softmax probability done
 
-    - monte carlo dropout, threshold for epistemic uncertainty...
+    - Monte Carlo Dropout, threshold for Bayesian model averaged softmax probabilities, epistemic uncertainty, with and without Standard Model / Background Class training data
 
     - class-specific autoencoders, threshold for reconstruction error...
 
     - GAN-trained discriminator, threshold for discriminator prediction...
 
-    - NOTA...
+    - Adversarial Mixup / NOTA...
