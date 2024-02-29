@@ -22,7 +22,6 @@ class DFNetTunable(nn.Module):
         self.block1_bn2 = nn.BatchNorm1d(num_features=hyperparameters['filters'])
         self.block1_act2 = nn.ELU()
         self.block1_pool = nn.MaxPool1d(kernel_size=hyperparameters['pool'], stride=hyperparameters['pool_stride'])
-        self.block1_dropout = nn.Dropout(hyperparameters['conv_dropout'])
 
         # Block 2
         self.block2_conv1 = nn.Conv1d(in_channels=hyperparameters['filters'], out_channels=hyperparameters['filters'], kernel_size=hyperparameters['kernel'], stride=hyperparameters['conv_stride'])
@@ -32,7 +31,6 @@ class DFNetTunable(nn.Module):
         self.block2_bn2 = nn.BatchNorm1d(num_features=hyperparameters['filters'])
         self.block2_act2 = nn.ELU()
         self.block2_pool = nn.MaxPool1d(kernel_size=hyperparameters['pool'], stride=hyperparameters['pool_stride'])
-        self.block2_dropout = nn.Dropout(hyperparameters['conv_dropout'])
 
         # Block 3
         self.block3_conv1 = nn.Conv1d(in_channels=hyperparameters['filters'], out_channels=hyperparameters['filters'], kernel_size=hyperparameters['kernel'], stride=hyperparameters['conv_stride'])
@@ -42,7 +40,6 @@ class DFNetTunable(nn.Module):
         self.block3_bn2 = nn.BatchNorm1d(num_features=hyperparameters['filters'])
         self.block3_act2 = nn.ELU()
         self.block3_pool = nn.MaxPool1d(kernel_size=hyperparameters['pool'], stride=hyperparameters['pool_stride'])
-        self.block3_dropout = nn.Dropout(hyperparameters['conv_dropout'])
 
         # Block 4
         self.block4_conv1 = nn.Conv1d(in_channels=hyperparameters['filters'], out_channels=hyperparameters['filters'], kernel_size=hyperparameters['kernel'], stride=hyperparameters['conv_stride'])
@@ -52,7 +49,6 @@ class DFNetTunable(nn.Module):
         self.block4_bn2 = nn.BatchNorm1d(num_features=hyperparameters['filters'])
         self.block4_act2 = nn.ELU()
         self.block4_pool = nn.MaxPool1d(kernel_size=hyperparameters['pool'], stride=hyperparameters['pool_stride'])
-        self.block4_dropout = nn.Dropout(hyperparameters['conv_dropout'])
 
         # Flatten layer
         self.flatten = nn.Flatten()
@@ -61,16 +57,17 @@ class DFNetTunable(nn.Module):
         self.fc1 = nn.Linear(in_features=hyperparameters['filters'] * math.ceil(input_shape[1] / (conv_downsampling * pool_downsampling)), out_features=hyperparameters['fc_neurons'])
         self.fc1_bn = nn.BatchNorm1d(num_features=hyperparameters['fc_neurons'])
         self.fc1_act = nn.ReLU() if hyperparameters['fc_activation'] == 'relu' else nn.ELU()
-        self.fc1_dropout = nn.Dropout(hyperparameters['fc_dropout'])
 
         self.fc2 = nn.Linear(in_features=hyperparameters['fc_neurons'], out_features=hyperparameters['fc_neurons'])
         self.fc2_bn = nn.BatchNorm1d(num_features=hyperparameters['fc_neurons'])
         self.fc2_act = nn.ReLU() if hyperparameters['fc_activation'] == 'relu' else nn.ELU()
-        self.fc2_dropout = nn.Dropout(hyperparameters['fc_dropout'])
 
         self.fc3 = nn.Linear(in_features=hyperparameters['fc_neurons'], out_features=classes)
 
-    def forward(self, x):
+    # 'training' is True when using the model in the train() mode, and when
+    # using it in the eval() mode for Monte Carlo Dropout. When using it
+    # in eval() for the baseline approach, it is False
+    def forward(self, x, training):
         # Block 1
         x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
         x = self.block1_conv1(x)
@@ -81,8 +78,9 @@ class DFNetTunable(nn.Module):
         x = self.block1_bn2(x)
         x = self.block1_act2(x)
         x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
-        x = self.block1_pool(x)
-        x = self.block1_dropout(x)
+        x = torch.nn.functional.dropout(self.block1_pool(x),
+                                        p = self.hyperparameters['conv_dropout'],
+                                        training = training)
 
         # Block 2
         x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
@@ -94,8 +92,9 @@ class DFNetTunable(nn.Module):
         x = self.block2_bn2(x)
         x = self.block2_act2(x)
         x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
-        x = self.block2_pool(x)
-        x = self.block2_dropout(x)
+        x = torch.nn.functional.dropout(self.block2_pool(x),
+                                        p = self.hyperparameters['conv_dropout'],
+                                        training = training)
 
         # Block 3
         x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
@@ -107,8 +106,9 @@ class DFNetTunable(nn.Module):
         x = self.block3_bn2(x)
         x = self.block3_act2(x)
         x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
-        x = self.block3_pool(x)
-        x = self.block3_dropout(x)
+        x = torch.nn.functional.dropout(self.block3_pool(x),
+                                        p = self.hyperparameters['conv_dropout'],
+                                        training = training)
 
         # Block 4
         x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
@@ -120,21 +120,24 @@ class DFNetTunable(nn.Module):
         x = self.block4_bn2(x)
         x = self.block4_act2(x)
         x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
-        x = self.block4_pool(x)
-        x = self.block4_dropout(x)
+        x = torch.nn.functional.dropout(self.block4_pool(x),
+                                        p = self.hyperparameters['conv_dropout'],
+                                        training = training)
 
         x = self.flatten(x)
 
         # Fully connected layers
         x = self.fc1(x)
         x = self.fc1_bn(x)
-        x = self.fc1_act(x)
-        x = self.fc1_dropout(x)
+        x = torch.nn.functional.dropout(self.fc1_act(x),
+                                        p = self.hyperparameters['fc_dropout'],
+                                        training = training)
 
         x = self.fc2(x)
         x = self.fc2_bn(x)
-        x = self.fc2_act(x)
-        x = self.fc2_dropout(x)
+        x = torch.nn.functional.dropout(self.fc2_act(x),
+                                        p = self.hyperparameters['fc_dropout'],
+                                        training = training)
 
         x = self.fc3(x)
         return x

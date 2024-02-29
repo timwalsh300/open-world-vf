@@ -76,7 +76,7 @@ for representation in ['dschuster16', 'schuster8']:
             continue
 
         global_val_loss_min = numpy.Inf
-        for l2_coeff in [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1]:
+        for l2_coeff in [1e-5, 0.5e-4, 1e-4, 1e-3, 1e-2, 1e-1]:
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
                                                   BEST_HYPERPARAMETERS[representation + '_' + protocol])
             model.to(device)
@@ -93,7 +93,7 @@ for representation in ['dschuster16', 'schuster8']:
                 training_loss = 0.0
                 for x_train, y_train in train_loader:
                     optimizer.zero_grad()
-                    outputs = model(x_train.to(device))
+                    outputs = model(x_train.to(device), training = True)
                     # this is where we differ from the baseline training loop that uses MLE...
                     # it is equivalent to MLE if we set l2_coeff = 0
                     loss = torch.sum(criterion(outputs, y_train.to(device)) + model.L2reg(l2_coeff))
@@ -105,7 +105,7 @@ for representation in ['dschuster16', 'schuster8']:
                 model.eval()
                 with torch.no_grad():
                     for x_val, y_val in val_loader:
-                        outputs = model(x_val.to(device))
+                        outputs = model(x_val.to(device), training = False)
                         loss = criterion(outputs, y_val.to(device))
                         val_loss += loss.item()
 

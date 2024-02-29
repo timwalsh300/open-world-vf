@@ -92,7 +92,7 @@ for representation in ['dschuster16', 'schuster8']:
             training_loss = 0.0
             for x_train, y_train in train_loader:
                 optimizer.zero_grad()
-                outputs = model(x_train.to(device))
+                outputs = model(x_train.to(device), training = True)
                 loss = criterion(outputs, y_train.to(device))
                 training_loss += loss.item()
                 loss.backward()
@@ -102,7 +102,7 @@ for representation in ['dschuster16', 'schuster8']:
             model.eval()
             with torch.no_grad():
                 for x_val, y_val in val_loader:
-                    outputs = model(x_val.to(device))
+                    outputs = model(x_val.to(device), training = False)
                     loss = criterion(outputs, y_val.to(device))
                     val_loss += loss.item()
 

@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=128GB
 #SBATCH --gres=gpu:1
-#SBATCH --time=0-1:00:00
+#SBATCH --time=0-2:00:00
 
 source /usr/share/Modules/init/bash
 module load lang/python/3.10.10

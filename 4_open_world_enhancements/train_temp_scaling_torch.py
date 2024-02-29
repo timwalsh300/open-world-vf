@@ -87,7 +87,7 @@ for representation in ['dschuster16', 'schuster8']:
         # this loops only once
         for x_val, y_val in val_loader:
             with torch.no_grad():
-                logits = model(x_val.to(device))
+                logits = model(x_val.to(device), training = False)
             print('Baseline model ECE:', check_calibration(logits.to('cpu'), y_val, 'baseline', protocol))
 
             print('Finding the best temperature T for', representation, protocol)
