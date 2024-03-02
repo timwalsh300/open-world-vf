@@ -46,7 +46,8 @@ def check_calibration(logits, y_val, approach, protocol):
     plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfectly Calibrated')
     plt.xlabel('Predicted Probability Bins and Number of Instances', fontsize = 32)
     plt.ylabel('True Positive Frequency', fontsize = 32)
-    plt.title('Reliability Diagram (' + protocol + ' val set)', fontsize = 32)
+    protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'    
+    plt.title('Reliability Diagram (' + protocol_string + ' Val Set)', fontsize = 32)
     plt.legend(fontsize = 20)
     plt.savefig('reliability_' + protocol + '_' + approach + '.png', dpi=300)
     
