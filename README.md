@@ -1,3 +1,5 @@
+This repository contains the steps and code to reproduce the work for "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (to be presented at the SecWeb 2024 workshop) and my dissertation. It is a work-in-progress through at least mid-2025, and intended only for academic research purposes. For access to the raw dataset, please contact me at timothy.walsh@nps.edu. Due to the considerable size of the raw dataset, to make it available while minimizing the cost of storage, we are using the Amazon S3 Glacier Deep Archive. That requires some coordination to grant access, including a restore request that can take up to 48 hours on Amazon's end. The sister repository with the code (and lists of our URLs) for our dataset collection effort is https://github.com/timwalsh300/tor-browser-crawler-video 
+
 0_raw_to_csv: Launch separate batch jobs by modifying the monitored_raw_to_csv.sh script for every combination of representation, protocol, and platform to turn the raw dataset into initial .csv files.
 
     * sirinam_wf, sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8, schuster16, dschuster16 done
@@ -24,14 +26,14 @@
 
     * select thresholds based on zero FP and 0.5 R over the validation set done
 
-4_open_world_enhancements:
+4_open_world_enhancements: Experiment with a number of more sophisticated methods attempting to address the theoretical shortcomings of the baseline, existing approach to the open-world / open set recognition task. 
 
-    * temperature scaling, threshold for calibrated max softmax probability done
+    * Temperature scaling, threshold for calibrated max softmax probability done
 
-    - Monte Carlo Dropout, threshold for Bayesian model averaged softmax probabilities, epistemic uncertainty, with and without Standard Model / Background Class training data
+    * Monte Carlo Dropout, Spike-and-Slab Concrete Dropout, threshold for Bayesian model averaged max softmax probability, total uncertainty, and epistemic uncertainty, with Standard Model / Background Class training data augmentation done
 
-    - class-specific autoencoders, threshold for reconstruction error...
+    - NOTA / Mixup for monitored training data augmentation...
+
+    - Class-specific autoencoders, threshold for reconstruction error...
 
     - GAN-trained discriminator, threshold for discriminator prediction...
-
-    - Adversarial Mixup / NOTA...

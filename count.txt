@@ -248,7 +248,7 @@ africa
 237 872 #################
 238 879 #################
 239 884 #################
-76696 unmonitored captures, tor
+76692 unmonitored captures, tor
 virginia
 oregon
 seoul
@@ -499,4 +499,5 @@ africa
 237 999 ###################
 238 1003 ####################
 239 1002 ####################
-78698 unmonitored captures, https
+78694 unmonitored captures, https
+total captures 606428

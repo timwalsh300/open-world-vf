@@ -7,6 +7,8 @@ vantage_points = ['virginia', 'oregon', 'seoul', 'sydney',
 
 VID_RE = re.compile('_\d+_')
 
+total_captures = 0
+
 for mode in ['tor', 'https']:
   site_dict = {}
   for i in range(240):
@@ -39,6 +41,7 @@ for mode in ['tor', 'https']:
   for i in range(240):
     captures = site_dict[str(i)]
     print(str(i), captures, int(captures / 50) * '#')
+    total_captures += captures
 
   count = 0
   for path, dirnames, filenames in os.walk('/data/timothy.walsh/July2023/unmonitored_' + mode):
@@ -47,3 +50,6 @@ for mode in ['tor', 'https']:
         if len(filenames) < 4:
             print('bad capture', path)
   print(str(count), 'unmonitored captures,', mode)
+  total_captures += count
+
+print('total captures', str(total_captures))
