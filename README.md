@@ -1,4 +1,6 @@
-## This repository contains the steps and code to reproduce the work for "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (to be presented at the SecWeb 2024 workshop) and my dissertation. It is a work-in-progress through at least mid-2025, and intended only for academic research purposes. The sister repository with the code (and lists of our URLs) for our dataset collection effort is https://github.com/timwalsh300/tor-browser-crawler-video
+### This repository contains the steps and code to reproduce the work for "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (to be presented at the SecWeb 2024 workshop) and my dissertation.
+
+This is a work-in-progress through at least mid-2025, and intended only for academic research purposes. The sister repository with the code (and lists of our URLs) for our dataset collection effort is https://github.com/timwalsh300/tor-browser-crawler-video
 
 For access to the raw dataset, please contact us through this form: https://docs.google.com/forms/d/1ldfKdUBMA2DJNh1_sGth-puYQfadybvNb3CPiihY3cE
 
@@ -12,7 +14,7 @@ Due to the considerable size of the raw dataset, to make it available while mini
 
 4. unmonitored_tor (110 GB as .tar.7z, 377 GB uncompressed)
 
-## Explanation of the parts of this repository (and my to-do list):
+### Explanation of the parts of this repository (and my to-do list):
 
 0_raw_to_csv: Launch separate batch jobs by modifying the monitored_raw_to_csv.sh script for every combination of representation, protocol, and platform to turn the raw dataset into initial .csv files.
 
@@ -28,7 +30,7 @@ Due to the considerable size of the raw dataset, to make it available while mini
 
 - [x] put all best found hyperparameters into evaluation.py
 
-- [x] evaluation batch job for all done
+- [x] evaluation batch job for all
 
 3_open_world_baseline: 61-way classification task with the best representation(s) only. Modify and run the 0_raw_to_csv/unmonitored_raw_to_csv.sh script for best closed-world data representations. Create train/val/test splits with csv_to_pkl_open.py for both HTTPS and Tor. Modify and run search_open.sh to do hyperparameter searches with Ray Tune. Copy best found hyperparameters into train_open.py and run that to train and save the models. Output P-R curve figures and results for P, R, F1, FP, FPR on test sets 1k to 64k after choosing thresholds using the validation set with evaluation_open.py.
 
