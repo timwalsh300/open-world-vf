@@ -100,10 +100,12 @@ def evaluate_model(model, representation, protocol, t_f1, t_zero, t_50):
         true_binary = (true_labels < 60)
         precisions, recalls, thresholds = precision_recall_curve(true_binary, scores)
         # add these to a global data structure to plot later
-        pr_curve_data[size[:-3] + 'k'] = (precisions, recalls, thresholds)
+        protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
+        pr_curve_data[protocol_string + ', ' + size[:-3] + 'k'] = (precisions, recalls, thresholds)
 
         # adjust True / False predictions based on the given threshold
-        for threshold in [t_zero, t_50]:
+        # for threshold in [t_f1, t_zero, t_50]:
+        for threshold in [t_50]:
             preds_binary = []
             for i in range(len(scores)):
                 # lookup the probability for the predicted class for
@@ -125,17 +127,17 @@ def evaluate_model(model, representation, protocol, t_f1, t_zero, t_50):
             F1 = TP / (TP + ((FN + FP) / 2))
             FPR = FP/(FP+TN)
             print('Precision:', str(P), 'Recall:', str(R), 'F1:', str(F1), 'FPR:', str(FPR), 'False Positives:', str(FP))
+            fp_rates, tp_rates, roc_thresholds = roc_curve(true_binary, scores)
+            pr_auc = auc(recalls, precisions)
+            print('PR AUC', pr_auc)
+            roc_auc = auc(fp_rates, tp_rates)
+            print('AUROC', roc_auc)
             if size == '64000':
                 false_positives = set()
                 for i in range(len(preds)):
                     if scores[i] >= threshold and true_binary[i] == False:
                         false_positives.add((splits['visits_test_64000'].iloc[i], preds_labels[i]))
                 print('false positive visits and predicted labels:', false_positives)
-                fp_rates, tp_rates, roc_thresholds = roc_curve(true_binary, scores)
-                pr_auc = auc(recalls, precisions)
-                print('PR AUC', pr_auc)
-                roc_auc = auc(fp_rates, tp_rates)
-                print('AUROC', roc_auc)
                
                 # plot and save a calibration curve figure
                 prob_true, prob_pred = calibration_curve(true_binary, scores, n_bins=20, strategy='uniform')
@@ -171,19 +173,22 @@ for representation in ['dschuster16', 'schuster8']:
             t_50 = get_threshold_50_recall(precisions, recalls, thresholds)
             evaluate_model(model, representation, protocol, t_f1, t_zero, t_50)
 
-            # create and save the P-R curve figure
-            colors = plt.cm.viridis(numpy.linspace(0, 1, len(pr_curve_data)))
-            plt.figure(figsize=(16, 12))
-            for (label, (precisions, recalls, _)), color in zip(pr_curve_data.items(), colors):
-                plt.plot(recalls, precisions, label=label, color=color)
-            plt.xlabel('Recall', fontsize = 32)
-            plt.ylabel('Precision', fontsize = 32)
-            protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
-            plt.title('Precision-Recall Curve (' + protocol_string + ')', fontsize = 32)
-            plt.legend(loc = 'lower left', fontsize = 20, title = 'World Size', title_fontsize = 20)
-            plt.tick_params(axis='both', which='major', labelsize=20)
-            plt.xlim(0.5, 1)
-            plt.ylim(0.5, 1)
-            plt.grid(True)
-            plt.savefig('baseline_pr_curve_' + protocol + '.png', dpi=300)
-            pr_curve_data = {}
+# create and save the P-R curve figure
+colors = ['#000000', '#6600cc', '#0066ff', '#339933', '#ffff00', '#ff9933', '#ff0000', '#000000', '#6600cc', '#0066ff', '#339933', '#ffff00', '#ff9933', '#ff0000']
+line_styles = ['-', '-', '-', '-', '-', '-', '-', ':', ':', ':', ':', ':', ':', ':']
+num_styles = len(line_styles)
+num_colors = len(colors)
+plt.figure(figsize=(16, 12))
+for i, (label, (precisions, recalls, _)) in enumerate(pr_curve_data.items()):
+    color = colors[i % num_colors]
+    line_style = line_styles[i % num_styles]
+    plt.plot(recalls, precisions, label=label, color=color, linestyle=line_style, linewidth=3.0)
+plt.xlabel('Recall', fontsize = 32)
+plt.ylabel('Precision', fontsize = 32)
+plt.title('Precision-Recall Curves', fontsize = 32)
+plt.legend(loc = 'lower left', fontsize = 24, title = 'Protocol, World Size', title_fontsize = 24)
+plt.tick_params(axis='both', which='major', labelsize=20)
+plt.xlim(0.5, 1)
+plt.ylim(0.5, 1)
+plt.grid(True)
+plt.savefig('baseline_pr_curve_combined.png', dpi=300)
