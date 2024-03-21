@@ -55,7 +55,8 @@ print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 for representation in ['dschuster16', 'schuster8']:
-    for protocol in ['https', 'tor']:
+    #for protocol in ['https', 'tor']:
+    for protocol in ['tor']:
         try:
             # if they exist, load the data tensors that resulted from raw_to_csv.py,
             # csv_to_pkl.py, csv_to_pkl_open.py, and keras_to_torch_splits.py
@@ -63,12 +64,11 @@ for representation in ['dschuster16', 'schuster8']:
             train_dataset = torch.utils.data.TensorDataset(*train_tensors)
             val_tensors = torch.load(representation + '_' + protocol + '_val_tensors.pt')
             val_dataset = torch.utils.data.TensorDataset(*val_tensors)
-            batch_size = BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']
             train_loader = torch.utils.data.DataLoader(train_dataset,
                                                        batch_size = BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size'],
                                                        shuffle=False)
             val_loader = torch.utils.data.DataLoader(val_dataset,
-                                                     batch_size=len(val_dataset),
+                                                     batch_size = len(val_dataset),
                                                      shuffle=False)
         except Exception as e:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
@@ -106,11 +106,11 @@ for representation in ['dschuster16', 'schuster8']:
                     loss = criterion(outputs, y_val.to(device))
                     val_loss += loss.item()
 
-            print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_loader)} \t Validation Loss: {val_loss / len(val_loader)}')
+            print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
             # check if this is a new low validation loss and, if so, save the model
             #
             # otherwise increment the counter towards the patience limit
-            early_stopping(val_loss / len(val_loader), model)
+            early_stopping(val_loss / len(val_dataset), model)
             if early_stopping.early_stop:
                 # we've reached the patience limit
                 print('Early stopping')

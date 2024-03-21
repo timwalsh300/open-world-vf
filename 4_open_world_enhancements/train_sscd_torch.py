@@ -1,12 +1,13 @@
 # This takes no arguments on the command line
 #
 # Outputs are the best trained model for HTTPS-only
-# and the best trained model for Tor after trying
-# a range of L2 coefficients.
+# and the best trained model for Tor using Spike
+# and Slab Dropout and Concrete Dropout layers
 
 import torch
 import mymodels_torch
 import numpy
+from bayesian_torch.models.dnn_to_bnn import get_kl_loss
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
@@ -15,7 +16,7 @@ INPUT_SHAPES = {'schuster8': (1, 1920),
 BEST_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
                         'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
 
-# helpfully provided by ChatGPT, and now modified to support tuning my L2 coefficient
+# helpfully provided by ChatGPT, and now modified to support tuning hyperparameters
 class EarlyStopping:
     def __init__(self, patience=10, verbose=True, delta=0, path='checkpoint.pt', trace_func=print, global_val_loss_min = numpy.Inf):
         self.patience = patience
@@ -72,31 +73,45 @@ for representation in ['dschuster16', 'schuster8']:
                                                      shuffle=False)
         except Exception as e:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
-            print(e)
             continue
 
         global_val_loss_min = numpy.Inf
-        for l2_coeff in [1e-5, 0.5e-4, 1e-4, 1e-3, 1e-2, 1e-1]:
-            model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
-                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol])
+        # this loop is a placeholder for something we might want to tune, like we
+        # did for the L2 coefficient in MAP estimation
+        for i in range(1):
+            model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation], 61,
+                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol],
+                                                  w = 1 / 10 * float(len(train_dataset)),
+                                                  d = 1 / float(len(train_dataset)))
             model.to(device)
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(model.parameters(),
                                          BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
-            early_stopping = EarlyStopping(patience = 10,
+            early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_map_model.pt'),
+                                           path = (representation + '_' + protocol + '_sscd_model.pt'),
                                            global_val_loss_min = global_val_loss_min)
             print('Starting to train now for', representation, protocol)
-            for epoch in range(120):
+            for epoch in range(240):
                 model.train()
                 training_loss = 0.0
                 for x_train, y_train in train_loader:
                     optimizer.zero_grad()
-                    outputs = model(x_train.to(device), training = True)
-                    # this is where we differ from the baseline training loop that uses MLE...
-                    # it is equivalent to MLE if we set l2_coeff = 0
-                    loss = torch.sum(criterion(outputs, y_train.to(device)) + model.L2reg(l2_coeff))
+                    outputs = model(x_train.to(device))
+                    # this is where we differ from the training loops that we used for baseline MLE and MAP...
+                    # loss is the mean NLL for the predictions (cross-entropy between the predicted and true
+                    # categorical distributions),
+                    # plus the mean KL divergence between the Gaussian distributions for the parameters
+                    # in the Flipout layers and the prior,
+                    # plus the mean KL divergence between the Bernoulli distributions for the
+                    # p_drop parameter in each Concrete Dropout layer and the prior
+                    data_term = criterion(outputs, y_train.to(device))
+                    print('data term', str(data_term.item()), end = ' ')
+                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
+                    print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
+                    bernoulli_prior_term = model.bernoulli_kl_loss() / len(x_train)
+                    print('Bernoulli prior term', str(bernoulli_prior_term.item()))
+                    loss = data_term + gaussian_prior_term + bernoulli_prior_term
                     training_loss += loss.item()
                     loss.backward()
                     optimizer.step()
@@ -105,17 +120,24 @@ for representation in ['dschuster16', 'schuster8']:
                 model.eval()
                 with torch.no_grad():
                     for x_val, y_val in val_loader:
-                        outputs = model(x_val.to(device), training = False)
+                        outputs = model(x_val.to(device))
                         loss = criterion(outputs, y_val.to(device))
                         val_loss += loss.item()
 
                 print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
                 # check if this is a new low validation loss to increment
                 # the counter towards the patience limit, but only save the
-                # model if this is a new best for any L2 coefficient so far
+                # model if this is a new best for any value of the
+                # hyperparameter that we're tuning
                 early_stopping(val_loss / len(val_dataset), model)
                 if early_stopping.early_stop:
                     # we've reached the patience limit
                     print('Early stopping')
                     global_val_loss_min = early_stopping.global_val_loss_min
                     break
+            
+                layer_names = ['block1_cd', 'block2_cd', 'block3_cd', 'block4_cd', 'fc1_cd', 'fc2_cd']
+                print('Getting p_drop values...')
+                for name in layer_names:
+                    parameter = getattr(model, name).p
+                    print(f"{name}: {parameter.data}")
