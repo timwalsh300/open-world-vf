@@ -418,19 +418,21 @@ class DFNetTunableSSCD(nn.Module):
         x = self.fc3(x, return_kl = False)
         return x
     
-    def bernoulli_kl_loss(self):
+    def bernoulli_kl_loss(self, representation):
         # our prior for p_drop is 0.5 to maximize uncertainty
         #
-        # the number of neurons in each CD layer are hard-coded
-        # for schuster8_tor right now... for dschuster16_https
-        # they would be 960, 240, 60, 15, 1024, 1024
+        # here are the number of neurons in each CD layer for the
+        # schuster8_tor and dschuster16_https models
+        neurons = {'schuster8_tor': [480,120,30,8,128,128],
+                   'dschuster16_https': [960,240,60,15,1024,1024]}
+        
         bernoulli_kl_loss = 0.0
-        bernoulli_kl_loss += 480 * (self.block1_cd.p * torch.log(self.block1_cd.p / 0.5) + (1 - self.block1_cd.p) * torch.log((1 - self.block1_cd.p) / 0.5))
-        bernoulli_kl_loss += 120 * (self.block2_cd.p * torch.log(self.block2_cd.p / 0.5) + (1 - self.block2_cd.p) * torch.log((1 - self.block2_cd.p) / 0.5))
-        bernoulli_kl_loss += 30 * (self.block3_cd.p * torch.log(self.block3_cd.p / 0.5) + (1 - self.block3_cd.p) * torch.log((1 - self.block3_cd.p) / 0.5))
-        bernoulli_kl_loss += 8 * (self.block4_cd.p * torch.log(self.block4_cd.p / 0.5) + (1 - self.block4_cd.p) * torch.log((1 - self.block4_cd.p) / 0.5))
-        bernoulli_kl_loss += 128 * (self.fc1_cd.p * torch.log(self.fc1_cd.p / 0.5) + (1 - self.fc1_cd.p) * torch.log((1 - self.fc1_cd.p) / 0.5))
-        bernoulli_kl_loss += 128 * (self.fc2_cd.p * torch.log(self.fc2_cd.p / 0.5) + (1 - self.fc2_cd.p) * torch.log((1 - self.fc2_cd.p) / 0.5))
+        bernoulli_kl_loss += neurons[representation][0] * (self.block1_cd.p * torch.log(self.block1_cd.p / 0.5) + (1 - self.block1_cd.p) * torch.log((1 - self.block1_cd.p) / 0.5))
+        bernoulli_kl_loss += neurons[representation][1] * (self.block2_cd.p * torch.log(self.block2_cd.p / 0.5) + (1 - self.block2_cd.p) * torch.log((1 - self.block2_cd.p) / 0.5))
+        bernoulli_kl_loss += neurons[representation][2] * (self.block3_cd.p * torch.log(self.block3_cd.p / 0.5) + (1 - self.block3_cd.p) * torch.log((1 - self.block3_cd.p) / 0.5))
+        bernoulli_kl_loss += neurons[representation][3] * (self.block4_cd.p * torch.log(self.block4_cd.p / 0.5) + (1 - self.block4_cd.p) * torch.log((1 - self.block4_cd.p) / 0.5))
+        bernoulli_kl_loss += neurons[representation][4] * (self.fc1_cd.p * torch.log(self.fc1_cd.p / 0.5) + (1 - self.fc1_cd.p) * torch.log((1 - self.fc1_cd.p) / 0.5))
+        bernoulli_kl_loss += neurons[representation][5] * (self.fc2_cd.p * torch.log(self.fc2_cd.p / 0.5) + (1 - self.fc2_cd.p) * torch.log((1 - self.fc2_cd.p) / 0.5))
         return bernoulli_kl_loss
 
 # this is just a sanity check for the baseline model

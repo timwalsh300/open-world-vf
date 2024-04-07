@@ -176,13 +176,14 @@ for representation in ['dschuster16', 'schuster8']:
 # create and save the P-R curve figure
 colors = ['#000000', '#6600cc', '#0066ff', '#339933', '#ffff00', '#ff9933', '#ff0000', '#000000', '#6600cc', '#0066ff', '#339933', '#ffff00', '#ff9933', '#ff0000']
 line_styles = ['-', '-', '-', '-', '-', '-', '-', ':', ':', ':', ':', ':', ':', ':']
+marker_styles = [None, None, None, None, None, None, None, 'x', 'x', 'x', 'x', 'x', 'x', 'x']
 num_styles = len(line_styles)
-num_colors = len(colors)
 plt.figure(figsize=(16, 12))
 for i, (label, (precisions, recalls, _)) in enumerate(pr_curve_data.items()):
-    color = colors[i % num_colors]
+    color = colors[i % num_styles]
     line_style = line_styles[i % num_styles]
-    plt.plot(recalls, precisions, label=label, color=color, linestyle=line_style, linewidth=3.0)
+    marker_style = marker_styles[i % num_styles]
+    plt.plot(recalls, precisions, label=label, color=color, linestyle=line_style, linewidth=3.0, marker=marker_style, markersize=15, markevery=40)
 plt.xlabel('Recall', fontsize = 32)
 plt.ylabel('Precision', fontsize = 32)
 plt.title('Precision-Recall Curves', fontsize = 32)

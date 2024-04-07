@@ -68,11 +68,14 @@ def check_calibration(scores, test_loader, approach, protocol):
 def get_scores(test_loader, protocol, representation, approach):
     # this is the MLE model that uses Max Softmax Probability or
     # Softmax Thresholding for OSR
-    if approach == 'baseline':
+    #
+    # we combine this with the Standard Model (Background Class), Mixup, Mixup Added,
+    # Standard Model + NOTA, and NOTA Only methods of training data augmentation
+    if approach == 'baseline' or approach == 'baseline_mixup' or approach == 'baseline_mixup_added' or approach == 'baseline_nota':
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model.pt'))
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model.pt'))
         model.to(device)
         model.eval()
         logits_batches = []
@@ -88,7 +91,7 @@ def get_scores(test_loader, protocol, representation, approach):
             # if the model was torn between two monitored classes.
             # We're implying the the probability of 60 is 1.0 - this.
             scores.append(max(preds[i][:60]))
-        print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
 
     # this is mostly copied from the baseline approach but adds
@@ -117,7 +120,7 @@ def get_scores(test_loader, protocol, representation, approach):
             scores.append(max(preds[i][:60]))
         print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
-        
+
     # this is mostly copied from the baseline approach but loads
     # the trained MAP model with L2 prior regularization instead of the
     # baseline MLE model
@@ -141,7 +144,7 @@ def get_scores(test_loader, protocol, representation, approach):
             scores.append(max(preds[i][:60]))
         print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
-        
+
     # this is mostly copied from the baseline approach but loads
     # the trained MAP model with L2 prior regularization instead of the
     # baseline MLE model, and then does Monte Carlo Dropout and Bayesian
@@ -155,11 +158,11 @@ def get_scores(test_loader, protocol, representation, approach):
         preds, scores = get_bayesian_msp(test_loader, model)
         print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
-        
+
     # this loads a trained MAP model with L2 prior regularization and then does Monte
     # Carlo Dropout before using epistemic uncertainty to rank predictions when they
     # are for any monitored class
-    # 
+    #
     # the intuition is that the epistemic uncertainty should be higher when we have
     # a false positive than when we have a true positive
     #
@@ -186,13 +189,16 @@ def get_scores(test_loader, protocol, representation, approach):
 
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
     # using maximum softmax probability to rank predictions when they are for any monitored class
-    elif approach == 'sscd_msp':
+    #
+    # we combine this with the Standard Model (Background Class), Mixup, Mixup Added,
+    # Standard Model + NOTA, and NOTA Only methods of training data augmentation
+    elif approach == 'sscd' or approach == 'sscd_mixup' or approach == 'sscd_mixup_added' or approach == 'sscd_nota':
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_sscd_model.pt'))
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model.pt'))
         preds, scores = get_bayesian_msp(test_loader, model)
-        print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
 
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
@@ -301,8 +307,7 @@ def get_total_uncertainty(test_loader, model):
 print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#for protocol in ['https', 'tor']:
-for protocol in ['tor']:
+for protocol in ['https', 'tor']:
     for representation in ['dschuster16', 'schuster8']:
         try:
             test_tensors = torch.load(representation + '_' + protocol + '_test_tensors.pt')
@@ -319,9 +324,9 @@ for protocol in ['tor']:
             true_binary = (true_labels < 60)
         except Exception as e:
             continue
-            
+
         # I'll add more approaches to this list as I build them
-        for approach in ['baseline', 'temp_scaling', 'map', 'mcd_msp', 'mcd_total_uncertainty', 'mcd_epistemic_uncertainty', 'sscd_msp', 'sscd_total_uncertainty', 'sscd_epistemic_uncertainty']:
+        for approach in ['baseline', 'baseline_mixup', 'baseline_mixup_added', 'baseline_nota', 'sscd', 'sscd_mixup', 'sscd_mixup_added', 'sscd_nota']:
             print('Getting scores for', protocol, approach)
             preds, scores = get_scores(test_loader, protocol, representation, approach)
             precisions, recalls, thresholds = precision_recall_curve(true_binary, scores)
@@ -344,8 +349,8 @@ for protocol in ['tor']:
             print(classification_report(true_binary, preds_binary))
 
         # create and save the P-R curve figure
-        colors = ['#808080', '#000000', '#996633', '#ff3300', '#ff3300', '#ff3300', '#0066ff', '#0066ff', '#0066ff']
-        line_styles = ['-', '-', '-', '-', '--', ':', '-', '--', ':']
+        colors = ['#000000', '#000000', '#000000', '#000000', '#0066ff', '#0066ff', '#0066ff', '#0066ff']
+        line_styles = ['-', '--', '-.', ':', '-', '--', '-.', ':']
         num_styles = len(line_styles)
         num_colors = len(colors)
         plt.figure(figsize=(16, 12))
@@ -362,5 +367,5 @@ for protocol in ['tor']:
         plt.xlim(0.5, 1)
         plt.ylim(0.5, 1)
         plt.grid(True)
-        plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
+        plt.savefig('enhanced_pr_curve_' + protocol + '_augmentation.png', dpi=300)
         pr_curve_data = {}

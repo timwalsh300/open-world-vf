@@ -1,13 +1,16 @@
 # This takes no arguments on the command line
 #
-# Outputs are the best trained model for HTTPS-only
-# and the best trained model for Tor using Spike
-# and Slab Dropout and Concrete Dropout layers
+# Outputs are the best trained models for HTTPS-only
+# and Tor using the uniform NOTA approach
+# to gain adversarial robustness
+#
+# This means that the model trains on 3x as
+# many instances in total, and more than twice
+# as many N+1 "unmonitored" instances
 
 import torch
 import mymodels_torch
 import numpy
-from bayesian_torch.models.dnn_to_bnn import get_kl_loss
 import sys
 
 protocol = sys.argv[1]
@@ -75,23 +78,25 @@ for representation in ['dschuster16', 'schuster8']:
                                                      shuffle=False)
         except Exception as e:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
+            print(e)
             continue
 
         global_val_loss_min = numpy.Inf
-        # this loop is a placeholder for something we might want to tune, like we
-        # did for the L2 coefficient in MAP estimation
-        for i in range(1):
-            model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation], 61,
-                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol],
-                                                  w = 1 / 10 * float(len(train_dataset)),
-                                                  d = 1 / float(len(train_dataset)))
+        # these are constants used to check and set labels after
+        # creating the NOTA instances
+        nota_label = torch.zeros(61, device = device)
+        nota_label[60] = 1.0
+        one_tensor = torch.tensor(1.0, device=device)
+        for alpha in [0.05, 0.1, 0.15, 0.2, 0.25]:
+            model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
+                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol])
             model.to(device)
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(model.parameters(),
                                          BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_sscd_model.pt'),
+                                           path = (representation + '_' + protocol + '_baseline_nota_model.pt'),
                                            global_val_loss_min = global_val_loss_min)
             print('Starting to train now for', representation, protocol)
             for epoch in range(240):
@@ -99,21 +104,60 @@ for representation in ['dschuster16', 'schuster8']:
                 training_loss = 0.0
                 for x_train, y_train in train_loader:
                     optimizer.zero_grad()
-                    outputs = model(x_train.to(device))
-                    # this is where we differ from the training loops that we used for baseline MLE and MAP...
-                    # loss is the mean NLL for the predictions (cross-entropy between the predicted and true
-                    # categorical distributions),
-                    # plus the mean KL divergence between the Gaussian distributions for the parameters
-                    # in the Flipout layers and the prior,
-                    # plus the mean KL divergence between the Bernoulli distributions for the
-                    # p_drop parameter in each Concrete Dropout layer and the prior
-                    data_term = criterion(outputs, y_train.to(device))
-                    #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
-                    #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(x_train)
-                    #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
-                    loss = data_term + gaussian_prior_term + bernoulli_prior_term
+                    x_train = x_train.to(device)
+                    y_train = y_train.to(device)
+                    # first train normally
+                    outputs = model(x_train, training=True)
+                    loss = criterion(outputs, y_train)
+                    loss.backward()
+                    optimizer.step()
+                    
+                    # now train again using uniform NOTA
+                    optimizer.zero_grad()
+                    # shuffle
+                    batch_size = x_train.size(0)
+                    index = torch.randperm(batch_size).to(device)
+                    # sample a lambda 
+                    lam = numpy.random.uniform(alpha, 0.5)
+                    # compute the weighted average of x_train and y_train
+                    wavg_x = lam * x_train + (1 - lam) * x_train[index, :]
+                    wavg_y = lam * y_train + (1 - lam) * y_train[index, :]
+                    outputs = model(wavg_x, training=True)
+                    # A small number of averaged instances might be from the same
+                    # monitored class, so they still have the appropriate
+                    # one-hot label and we want to preserve those. Averages of
+                    # instances from two different classes, however, will
+                    # not have a one-hot label. We want to identify those
+                    # and give them the N+1 or 60 label.
+                    for i in range(len(wavg_y)):
+                        if wavg_y[i].max().item() != 1.0:
+                            wavg_y[i] = nota_label
+                    loss = criterion(outputs, wavg_y)
+                    training_loss += loss.item()
+                    loss.backward()
+                    optimizer.step()
+                    
+                    # now train again using mean NOTA
+                    optimizer.zero_grad()
+                    # shuffle
+                    batch_size = x_train.size(0)
+                    index = torch.randperm(batch_size).to(device)
+                    # sample a lambda 
+                    lam = numpy.random.uniform(0.48, 0.5)
+                    # compute the weighted average of x_train and y_train
+                    mean_x = lam * x_train + (1 - lam) * x_train[index, :]
+                    mean_y = lam * y_train + (1 - lam) * y_train[index, :]
+                    outputs = model(mean_x, training=True)
+                    # A small number of averaged instances might be from the same
+                    # monitored class, so they still have the appropriate
+                    # one-hot label and we want to preserve those. Averages of
+                    # instances from two different classes, however, will
+                    # not have a one-hot label. We want to identify those
+                    # and give them the N+1 or 60 label.
+                    for i in range(len(mean_y)):
+                        if mean_y[i].max().item() != 1.0:
+                            mean_y[i] = nota_label
+                    loss = criterion(outputs, mean_y)
                     training_loss += loss.item()
                     loss.backward()
                     optimizer.step()
@@ -122,11 +166,11 @@ for representation in ['dschuster16', 'schuster8']:
                 model.eval()
                 with torch.no_grad():
                     for x_val, y_val in val_loader:
-                        outputs = model(x_val.to(device))
+                        outputs = model(x_val.to(device), training = False)
                         loss = criterion(outputs, y_val.to(device))
                         val_loss += loss.item()
 
-                print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
+                print(f'Epoch {epoch+1} \t Training Loss: {training_loss / 3 * len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
                 # check if this is a new low validation loss to increment
                 # the counter towards the patience limit, but only save the
                 # model if this is a new best for any value of the
@@ -137,9 +181,3 @@ for representation in ['dschuster16', 'schuster8']:
                     print('Early stopping')
                     global_val_loss_min = early_stopping.global_val_loss_min
                     break
-            
-                #layer_names = ['block1_cd', 'block2_cd', 'block3_cd', 'block4_cd', 'fc1_cd', 'fc2_cd']
-                #print('Getting p_drop values...')
-                #for name in layer_names:
-                #    parameter = getattr(model, name).p
-                #    print(f"{name}: {parameter.data}")

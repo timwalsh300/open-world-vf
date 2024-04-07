@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=evaluation_open_enhanced_torch
+#SBATCH --job-name=evaluation_open_enhanced_augmentation
 #SBATCH -o /home/timothy.walsh/VF/4_open_world_enhancements/%x.out
 #SBATCH --partition=barton
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=128GB
+#SBATCH --mem=64GB
 #SBATCH --gres=gpu:1
 #SBATCH --time=0-12:00:00
 

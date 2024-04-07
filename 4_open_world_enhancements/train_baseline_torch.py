@@ -55,8 +55,7 @@ print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 for representation in ['dschuster16', 'schuster8']:
-    #for protocol in ['https', 'tor']:
-    for protocol in ['tor']:
+    for protocol in ['https', 'tor']:
         try:
             # if they exist, load the data tensors that resulted from raw_to_csv.py,
             # csv_to_pkl.py, csv_to_pkl_open.py, and keras_to_torch_splits.py
@@ -83,11 +82,11 @@ for representation in ['dschuster16', 'schuster8']:
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(),
                                      BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
-        early_stopping = EarlyStopping(patience = 10,
+        early_stopping = EarlyStopping(patience = 20,
                                        verbose = True,
                                        path = (representation + '_' + protocol + '_baseline_model.pt'))
         print('Starting to train now for', representation, protocol)
-        for epoch in range(120):
+        for epoch in range(240):
             model.train()
             training_loss = 0.0
             for x_train, y_train in train_loader:

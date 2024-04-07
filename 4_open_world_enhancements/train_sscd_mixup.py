@@ -2,7 +2,10 @@
 #
 # Outputs are the best trained model for HTTPS-only
 # and the best trained model for Tor using Spike
-# and Slab Dropout and Concrete Dropout layers
+# and Slab Dropout and Concrete Dropout layers,
+# and using the original Mixup approach
+# to gain adversarial robustness, tuned over
+# a range of values for alpha
 
 import torch
 import mymodels_torch
@@ -78,9 +81,7 @@ for representation in ['dschuster16', 'schuster8']:
             continue
 
         global_val_loss_min = numpy.Inf
-        # this loop is a placeholder for something we might want to tune, like we
-        # did for the L2 coefficient in MAP estimation
-        for i in range(1):
+        for alpha in [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]:
             model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation], 61,
                                                   BEST_HYPERPARAMETERS[representation + '_' + protocol],
                                                   w = 1 / 10 * float(len(train_dataset)),
@@ -91,7 +92,7 @@ for representation in ['dschuster16', 'schuster8']:
                                          BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_sscd_model.pt'),
+                                           path = (representation + '_' + protocol + '_sscd_mixup_model.pt'),
                                            global_val_loss_min = global_val_loss_min)
             print('Starting to train now for', representation, protocol)
             for epoch in range(240):
@@ -99,15 +100,17 @@ for representation in ['dschuster16', 'schuster8']:
                 training_loss = 0.0
                 for x_train, y_train in train_loader:
                     optimizer.zero_grad()
-                    outputs = model(x_train.to(device))
-                    # this is where we differ from the training loops that we used for baseline MLE and MAP...
-                    # loss is the mean NLL for the predictions (cross-entropy between the predicted and true
-                    # categorical distributions),
-                    # plus the mean KL divergence between the Gaussian distributions for the parameters
-                    # in the Flipout layers and the prior,
-                    # plus the mean KL divergence between the Bernoulli distributions for the
-                    # p_drop parameter in each Concrete Dropout layer and the prior
-                    data_term = criterion(outputs, y_train.to(device))
+                    x_train = x_train.to(device)
+                    y_train = y_train.to(device)
+                    lam = numpy.random.beta(alpha, alpha)
+                    # shuffle
+                    batch_size = x_train.size(0)
+                    index = torch.randperm(batch_size).to(device)
+                    # Mixup x_train and y_train
+                    mixed_x = lam * x_train + (1 - lam) * x_train[index, :]
+                    mixed_y = lam * y_train + (1 - lam) * y_train[index, :]
+                    outputs = model(mixed_x, training=True)
+                    data_term = criterion(outputs, mixed_y)
                     #print('data term', str(data_term.item()), end = ' ')
                     gaussian_prior_term = get_kl_loss(model) / len(x_train)
                     #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
