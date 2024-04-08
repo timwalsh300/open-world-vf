@@ -1,4 +1,6 @@
-# This takes no arguments on the command line
+# This takes either 'tor' or 'https' an argument on
+# the command line to split up the training into
+# two batch jobs
 #
 # Outputs are the best trained models for HTTPS-only
 # and Tor using the Mixup approach
@@ -12,6 +14,9 @@
 import torch
 import mymodels_torch
 import numpy
+import sys
+
+protocol = sys.argv[1]
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
@@ -60,7 +65,7 @@ print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 for representation in ['dschuster16', 'schuster8']:
-    for protocol in ['https', 'tor']:
+    #for protocol in ['https', 'tor']:
         try:
             # if they exist, load the data tensors that resulted from raw_to_csv.py,
             # csv_to_pkl.py, csv_to_pkl_open.py, and keras_to_torch_splits.py

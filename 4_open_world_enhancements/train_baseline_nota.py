@@ -1,12 +1,13 @@
-# This takes no arguments on the command line
+# This takes either 'tor' or 'https' an argument on
+# the command line to split up the training into
+# two batch jobs
 #
 # Outputs are the best trained models for HTTPS-only
-# and Tor using the uniform NOTA approach
+# and Tor using the uniform and mean NOTA approach
 # to gain adversarial robustness
 #
 # This means that the model trains on 3x as
-# many instances in total, and more than twice
-# as many N+1 "unmonitored" instances
+# many instances in total
 
 import torch
 import mymodels_torch

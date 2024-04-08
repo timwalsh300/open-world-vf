@@ -2,21 +2,17 @@
 # the command line to split up the training into
 # two batch jobs
 #
-# Outputs are the best trained model for HTTPS-only
-# and the best trained model for Tor using Spike
-# and Slab Dropout and Concrete Dropout layers,
-# and using the original Mixup approach
-# to gain adversarial robustness, tuned over
-# a range of values for alpha, in addition to
-# training on the original instances
+# Outputs are the best trained models for HTTPS-only
+# and Tor using the uniform and mean NOTA approach
+# to gain adversarial robustness
 #
-# This means that the model trains on twice as
-# many instances
+# This one only uses the training data for the
+# monitored set and creates synthetic N+1 labeled
+# instances to seed the open space
 
 import torch
 import mymodels_torch
 import numpy
-from bayesian_torch.models.dnn_to_bnn import get_kl_loss
 import sys
 
 protocol = sys.argv[1]
@@ -72,7 +68,7 @@ for representation in ['dschuster16', 'schuster8']:
         try:
             # if they exist, load the data tensors that resulted from raw_to_csv.py,
             # csv_to_pkl.py, csv_to_pkl_open.py, and keras_to_torch_splits.py
-            train_tensors = torch.load(representation + '_' + protocol + '_train_tensors.pt')
+            train_tensors = torch.load(representation + '_' + protocol + '_train_mon_tensors.pt')
             train_dataset = torch.utils.data.TensorDataset(*train_tensors)
             val_tensors = torch.load(representation + '_' + protocol + '_val_tensors.pt')
             val_dataset = torch.utils.data.TensorDataset(*val_tensors)
@@ -84,21 +80,25 @@ for representation in ['dschuster16', 'schuster8']:
                                                      shuffle=False)
         except Exception as e:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
+            print(e)
             continue
 
         global_val_loss_min = numpy.Inf
-        for alpha in [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]:
-            model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation], 61,
-                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol],
-                                                  w = 1 / 10 * float(2 * len(train_dataset)),
-                                                  d = 1 / float(2 * len(train_dataset)))
+        # these are constants used to check and set labels after
+        # creating the NOTA instances
+        nota_label = torch.zeros(61, device = device)
+        nota_label[60] = 1.0
+        one_tensor = torch.tensor(1.0, device=device)
+        for alpha in [0.05, 0.1, 0.15, 0.2, 0.25]:
+            model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
+                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol])
             model.to(device)
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(model.parameters(),
                                          BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_sscd_mixup_added_model.pt'),
+                                           path = (representation + '_' + protocol + '_baseline_nota_monitored_model.pt'),
                                            global_val_loss_min = global_val_loss_min)
             print('Starting to train now for', representation, protocol)
             for epoch in range(240):
@@ -108,24 +108,40 @@ for representation in ['dschuster16', 'schuster8']:
                     optimizer.zero_grad()
                     x_train = x_train.to(device)
                     y_train = y_train.to(device)
+                    n1_labels = torch.zeros(y_train.size(0), 1, device = device)
+                    y_train = torch.cat((y_train, n1_labels), dim=1)
                     
-                    # Mixup x_train and y_train
-                    lam = numpy.random.beta(alpha, alpha)
+                    # prepare uniform NOTA instances
                     batch_size = x_train.size(0)
                     index = torch.randperm(batch_size).to(device)
-                    mixed_x = lam * x_train + (1 - lam) * x_train[index, :]
-                    mixed_y = lam * y_train + (1 - lam) * y_train[index, :]
+                    # sample a lambda 
+                    lam = numpy.random.uniform(alpha, 0.5)
+                    # compute the weighted average of x_train and y_train
+                    wavg_x = lam * x_train + (1 - lam) * x_train[index, :]
+                    wavg_y = lam * y_train + (1 - lam) * y_train[index, :]
                     
-                    combined_x = torch.cat([x_train, mixed_x], dim=0)
-                    combined_y = torch.cat([y_train, mixed_y], dim=0)
+                    # prepare mean NOTA instances
+                    batch_size = x_train.size(0)
+                    index = torch.randperm(batch_size).to(device)
+                    # sample a lambda 
+                    lam = numpy.random.uniform(0.48, 0.5)
+                    # compute the weighted average of x_train and y_train
+                    mean_x = lam * x_train + (1 - lam) * x_train[index, :]
+                    mean_y = lam * y_train + (1 - lam) * y_train[index, :]
+                    
+                    combined_x = torch.cat([x_train, wavg_x, mean_x], dim=0)
+                    combined_y = torch.cat([y_train, wavg_y, mean_y], dim=0)
+                    # A small number of averaged instances might be from the same
+                    # monitored class, so they still have the appropriate
+                    # one-hot label and we want to preserve those. Averages of
+                    # instances from two different classes, however, will
+                    # not have a one-hot label. We want to identify those
+                    # and give them the N+1 or 60 label.
+                    for i in range(len(combined_y)):
+                        if combined_y[i].max().item() != 1.0:
+                            combined_y[i] = nota_label
                     outputs = model(combined_x, training=True)
-                    data_term = criterion(outputs, combined_y)
-                    #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(combined_x)
-                    #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(combined_x)
-                    #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
-                    loss = data_term + gaussian_prior_term + bernoulli_prior_term
+                    loss = criterion(outputs, combined_y)
                     training_loss += loss.item()
                     loss.backward()
                     optimizer.step()
@@ -134,11 +150,11 @@ for representation in ['dschuster16', 'schuster8']:
                 model.eval()
                 with torch.no_grad():
                     for x_val, y_val in val_loader:
-                        outputs = model(x_val.to(device))
+                        outputs = model(x_val.to(device), training = False)
                         loss = criterion(outputs, y_val.to(device))
                         val_loss += loss.item()
 
-                print(f'Epoch {epoch+1} \t Training Loss: {training_loss / 2 * len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
+                print(f'Epoch {epoch+1} \t Training Loss: {training_loss / 3 * len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
                 # check if this is a new low validation loss to increment
                 # the counter towards the patience limit, but only save the
                 # model if this is a new best for any value of the
@@ -149,9 +165,3 @@ for representation in ['dschuster16', 'schuster8']:
                     print('Early stopping')
                     global_val_loss_min = early_stopping.global_val_loss_min
                     break
-            
-                #layer_names = ['block1_cd', 'block2_cd', 'block3_cd', 'block4_cd', 'fc1_cd', 'fc2_cd']
-                #print('Getting p_drop values...')
-                #for name in layer_names:
-                #    parameter = getattr(model, name).p
-                #    print(f"{name}: {parameter.data}")
