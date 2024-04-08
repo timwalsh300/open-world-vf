@@ -106,34 +106,22 @@ for representation in ['dschuster16', 'schuster8']:
                     optimizer.zero_grad()
                     x_train = x_train.to(device)
                     y_train = y_train.to(device)
-                    # first train normally
-                    outputs = model(x_train, training=True)
-                    data_term = criterion(outputs, y_train)
-                    #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
-                    #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(x_train)
-                    #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
-                    loss = data_term + gaussian_prior_term + bernoulli_prior_term
-                    training_loss += loss.item()
-                    loss.backward()
-                    optimizer.step()
-
-                    # now train again using Mixup
-                    optimizer.zero_grad()
+                    
+                    # Mixup x_train and y_train
                     lam = numpy.random.beta(alpha, alpha)
-                    # shuffle
                     batch_size = x_train.size(0)
                     index = torch.randperm(batch_size).to(device)
-                    # Mixup x_train and y_train
                     mixed_x = lam * x_train + (1 - lam) * x_train[index, :]
                     mixed_y = lam * y_train + (1 - lam) * y_train[index, :]
-                    outputs = model(mixed_x, training=True)
-                    data_term = criterion(outputs, mixed_y)
+                    
+                    combined_x = torch.cat([x_train, mixed_x], dim=0)
+                    combined_y = torch.cat([y_train, mixed_y], dim=0)
+                    outputs = model(combined_x, training=True)
+                    data_term = criterion(outputs, combined_y)
                     #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
+                    gaussian_prior_term = get_kl_loss(model) / len(combined_x)
                     #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(x_train)
+                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(combined_x)
                     #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
                     loss = data_term + gaussian_prior_term + bernoulli_prior_term
                     training_loss += loss.item()

@@ -110,22 +110,8 @@ for representation in ['dschuster16', 'schuster8']:
                     optimizer.zero_grad()
                     x_train = x_train.to(device)
                     y_train = y_train.to(device)
-                    # first train normally
-                    outputs = model(x_train, training=True)
-                    data_term = criterion(outputs, y_train)
-                    #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
-                    #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(x_train)
-                    #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
-                    loss = data_term + gaussian_prior_term + bernoulli_prior_term
-                    training_loss += loss.item()
-                    loss.backward()
-                    optimizer.step()
                     
-                    # now train again using uniform NOTA
-                    optimizer.zero_grad()
-                    # shuffle
+                    # prepare uniform NOTA instances
                     batch_size = x_train.size(0)
                     index = torch.randperm(batch_size).to(device)
                     # sample a lambda 
@@ -133,30 +119,8 @@ for representation in ['dschuster16', 'schuster8']:
                     # compute the weighted average of x_train and y_train
                     wavg_x = lam * x_train + (1 - lam) * x_train[index, :]
                     wavg_y = lam * y_train + (1 - lam) * y_train[index, :]
-                    outputs = model(wavg_x, training=True)
-                    # A small number of averaged instances might be from the same
-                    # monitored class, so they still have the appropriate
-                    # one-hot label and we want to preserve those. Averages of
-                    # instances from two different classes, however, will
-                    # not have a one-hot label. We want to identify those
-                    # and give them the N+1 or 60 label.
-                    for i in range(len(wavg_y)):
-                        if wavg_y[i].max().item() != 1.0:
-                            wavg_y[i] = nota_label
-                    data_term = criterion(outputs, wavg_y)
-                    #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
-                    #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(x_train)
-                    #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
-                    loss = data_term + gaussian_prior_term + bernoulli_prior_term
-                    training_loss += loss.item()
-                    loss.backward()
-                    optimizer.step()
                     
-                    # now train again using mean NOTA
-                    optimizer.zero_grad()
-                    # shuffle
+                    # prepare mean NOTA instances
                     batch_size = x_train.size(0)
                     index = torch.randperm(batch_size).to(device)
                     # sample a lambda 
@@ -164,21 +128,24 @@ for representation in ['dschuster16', 'schuster8']:
                     # compute the weighted average of x_train and y_train
                     mean_x = lam * x_train + (1 - lam) * x_train[index, :]
                     mean_y = lam * y_train + (1 - lam) * y_train[index, :]
-                    outputs = model(mean_x, training=True)
+                    
+                    combined_x = torch.cat([x_train, wavg_x, mean_x], dim=0)
+                    combined_y = torch.cat([y_train, wavg_y, mean_y], dim=0)
                     # A small number of averaged instances might be from the same
                     # monitored class, so they still have the appropriate
                     # one-hot label and we want to preserve those. Averages of
                     # instances from two different classes, however, will
                     # not have a one-hot label. We want to identify those
                     # and give them the N+1 or 60 label.
-                    for i in range(len(mean_y)):
-                        if mean_y[i].max().item() != 1.0:
-                            mean_y[i] = nota_label
-                    data_term = criterion(outputs, mean_y)
+                    for i in range(len(combined_y)):
+                        if combined_y[i].max().item() != 1.0:
+                            combined_y[i] = nota_label
+                    outputs = model(combined_x, training=True)
+                    data_term = criterion(outputs, combined_y)
                     #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
+                    gaussian_prior_term = get_kl_loss(model) / len(combined_x)
                     #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(x_train)
+                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(combined_x)
                     #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
                     loss = data_term + gaussian_prior_term + bernoulli_prior_term
                     training_loss += loss.item()
