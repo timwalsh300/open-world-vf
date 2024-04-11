@@ -8,9 +8,6 @@ import torch
 import mymodels_torch
 import numpy
 from bayesian_torch.models.dnn_to_bnn import get_kl_loss
-import sys
-
-protocol = sys.argv[1]
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
@@ -60,6 +57,7 @@ print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 for representation in ['dschuster16', 'schuster8']:
     #for protocol in ['https', 'tor']:
+    for protocol in ['tor']:
         try:
             # if they exist, load the data tensors that resulted from raw_to_csv.py,
             # csv_to_pkl.py, csv_to_pkl_open.py, and keras_to_torch_splits.py
@@ -77,19 +75,19 @@ for representation in ['dschuster16', 'schuster8']:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
             continue
 
-        for trial in range(9,10):
-            global_val_loss_min = numpy.Inf
-            model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation], 61,
-                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol],
-                                                  w = 1 / 10 * float(len(train_dataset)),
-                                                  d = 1 / float(len(train_dataset)))
+        global_val_loss_min = numpy.Inf
+        # this loop is a placeholder for something we might want to tune, like we
+        # did for the L2 coefficient in MAP estimation
+        for i in range(1):
+            model = mymodels_torch.DFNetTunableSSD(INPUT_SHAPES[representation], 61,
+                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol])
             model.to(device)
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(model.parameters(),
                                          BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_sscd_model' + str(trial) + '.pt'),
+                                           path = (representation + '_' + protocol + '_ssd_model.pt'),
                                            global_val_loss_min = global_val_loss_min)
             print('Starting to train now for', representation, protocol)
             for epoch in range(240):
@@ -99,19 +97,7 @@ for representation in ['dschuster16', 'schuster8']:
                     optimizer.zero_grad()
                     outputs = model(x_train.to(device))
                     # this is where we differ from the training loops that we used for baseline MLE and MAP...
-                    # loss is the mean NLL for the predictions (cross-entropy between the predicted and true
-                    # categorical distributions),
-                    # plus the mean KL divergence between the Gaussian distributions for the parameters
-                    # in the Flipout layers and the prior,
-                    # plus the mean KL divergence between the Bernoulli distributions for the
-                    # p_drop parameter in each Concrete Dropout layer and the prior
-                    data_term = criterion(outputs, y_train.to(device))
-                    #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
-                    #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(x_train)
-                    #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
-                    loss = data_term + gaussian_prior_term + bernoulli_prior_term
+                    loss = torch.sum(criterion(outputs, y_train.to(device)) + (get_kl_loss(model) / len(x_train)))
                     training_loss += loss.item()
                     loss.backward()
                     optimizer.step()
@@ -135,9 +121,3 @@ for representation in ['dschuster16', 'schuster8']:
                     print('Early stopping')
                     global_val_loss_min = early_stopping.global_val_loss_min
                     break
-            
-                #layer_names = ['block1_cd', 'block2_cd', 'block3_cd', 'block4_cd', 'fc1_cd', 'fc2_cd']
-                #print('Getting p_drop values...')
-                #for name in layer_names:
-                #    parameter = getattr(model, name).p
-                #    print(f"{name}: {parameter.data}")

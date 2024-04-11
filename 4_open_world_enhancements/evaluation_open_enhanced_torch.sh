@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=evaluation_open_enhanced_augmentation
+#SBATCH --job-name=evaluation_open_enhanced_torch
 #SBATCH -o /home/timothy.walsh/VF/4_open_world_enhancements/%x.out
 #SBATCH --partition=barton
 #SBATCH --cpus-per-task=2

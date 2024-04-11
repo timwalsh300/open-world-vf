@@ -73,44 +73,44 @@ for representation in ['dschuster16', 'schuster8']:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
             print(e)
             continue
+        for trial in range(10):
+            model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
+                                                BEST_HYPERPARAMETERS[representation + '_' + protocol])
+            if BEST_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
+                model.apply(glorot_uniform)
+            model.to(device)
+            criterion = torch.nn.CrossEntropyLoss()
+            optimizer = torch.optim.Adam(model.parameters(),
+                                         BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
+            early_stopping = EarlyStopping(patience = 20,
+                                           verbose = True,
+                                           path = (representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
+            print('Starting to train now for', representation, protocol)
+            for epoch in range(240):
+                model.train()
+                training_loss = 0.0
+                for x_train, y_train in train_loader:
+                    optimizer.zero_grad()
+                    outputs = model(x_train.to(device), training = True)
+                    loss = criterion(outputs, y_train.to(device))
+                    training_loss += loss.item()
+                    loss.backward()
+                    optimizer.step()
 
-        model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
-                                            BEST_HYPERPARAMETERS[representation + '_' + protocol])
-        if BEST_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
-            model.apply(glorot_uniform)
-        model.to(device)
-        criterion = torch.nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(),
-                                     BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
-        early_stopping = EarlyStopping(patience = 20,
-                                       verbose = True,
-                                       path = (representation + '_' + protocol + '_baseline_model.pt'))
-        print('Starting to train now for', representation, protocol)
-        for epoch in range(240):
-            model.train()
-            training_loss = 0.0
-            for x_train, y_train in train_loader:
-                optimizer.zero_grad()
-                outputs = model(x_train.to(device), training = True)
-                loss = criterion(outputs, y_train.to(device))
-                training_loss += loss.item()
-                loss.backward()
-                optimizer.step()
+                val_loss = 0.0
+                model.eval()
+                with torch.no_grad():
+                    for x_val, y_val in val_loader:
+                        outputs = model(x_val.to(device), training = False)
+                        loss = criterion(outputs, y_val.to(device))
+                        val_loss += loss.item()
 
-            val_loss = 0.0
-            model.eval()
-            with torch.no_grad():
-                for x_val, y_val in val_loader:
-                    outputs = model(x_val.to(device), training = False)
-                    loss = criterion(outputs, y_val.to(device))
-                    val_loss += loss.item()
-
-            print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
-            # check if this is a new low validation loss and, if so, save the model
-            #
-            # otherwise increment the counter towards the patience limit
-            early_stopping(val_loss / len(val_dataset), model)
-            if early_stopping.early_stop:
-                # we've reached the patience limit
-                print('Early stopping')
-                break
+                print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
+                # check if this is a new low validation loss and, if so, save the model
+                #
+                # otherwise increment the counter towards the patience limit
+                early_stopping(val_loss / len(val_dataset), model)
+                if early_stopping.early_stop:
+                    # we've reached the patience limit
+                    print('Early stopping')
+                    break

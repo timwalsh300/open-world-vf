@@ -83,13 +83,15 @@ for representation in ['dschuster16', 'schuster8']:
             print(e)
             continue
 
-        global_val_loss_min = numpy.Inf
         # these are constants used to check and set labels after
         # creating the NOTA instances
         nota_label = torch.zeros(61, device = device)
         nota_label[60] = 1.0
         one_tensor = torch.tensor(1.0, device=device)
-        for alpha in [0.05, 0.1, 0.15, 0.2, 0.25]:
+        #global_val_loss_min = numpy.Inf
+        #for alpha in [0.05, 0.1, 0.15, 0.2, 0.25]:
+        for trial in range(10):
+            global_val_loss_min = numpy.Inf
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
                                                   BEST_HYPERPARAMETERS[representation + '_' + protocol])
             model.to(device)
@@ -98,7 +100,7 @@ for representation in ['dschuster16', 'schuster8']:
                                          BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_baseline_nota_monitored_model.pt'),
+                                           path = (representation + '_' + protocol + '_baseline_nota_monitored_model' + str(trial) + '.pt'),
                                            global_val_loss_min = global_val_loss_min)
             print('Starting to train now for', representation, protocol)
             for epoch in range(240):
@@ -111,26 +113,34 @@ for representation in ['dschuster16', 'schuster8']:
                     n1_labels = torch.zeros(y_train.size(0), 1, device = device)
                     y_train = torch.cat((y_train, n1_labels), dim=1)
                     
-                    # prepare uniform NOTA instances
+                    # get random indices to pair each instance in the
+                    # batch with another instance
                     batch_size = x_train.size(0)
                     index = torch.randperm(batch_size).to(device)
-                    # sample a lambda 
-                    lam = numpy.random.uniform(alpha, 0.5)
-                    # compute the weighted average of x_train and y_train
+                    
+                    # prepare uniform NOTA instances...
+                    # sample a lambda between 0.2 and 0.8 per the
+                    # original implementation by Barton
+                    lam = numpy.random.uniform(0.2, 0.8)
+                    # compute the weighted averages of the pairs
                     wavg_x = lam * x_train + (1 - lam) * x_train[index, :]
                     wavg_y = lam * y_train + (1 - lam) * y_train[index, :]
                     
-                    # prepare mean NOTA instances
-                    batch_size = x_train.size(0)
-                    index = torch.randperm(batch_size).to(device)
-                    # sample a lambda 
-                    lam = numpy.random.uniform(0.48, 0.5)
-                    # compute the weighted average of x_train and y_train
-                    mean_x = lam * x_train + (1 - lam) * x_train[index, :]
-                    mean_y = lam * y_train + (1 - lam) * y_train[index, :]
+                    # prepare mean NOTA instances...
+                    # get a random stddev for each instance
+                    random_std_devs = torch.rand(len(x_train), device=device) * 0.09 + 0.01
+                    # get Gaussian noise in the same shape as x_train and scale it by
+                    # the stddev for each instance
+                    noise = torch.randn_like(x_train) * random_std_devs.unsqueeze(1).unsqueeze(2)
+                    # compute the means of the pairs and add the noise
+                    mean_x = 0.5 * x_train + 0.5 * x_train[index, :] + noise
+                    mean_y = 0.5 * y_train + 0.5 * y_train[index, :]
                     
+                    # concatenate the original x and y tensors with the new
+                    # uniform and mean instances
                     combined_x = torch.cat([x_train, wavg_x, mean_x], dim=0)
                     combined_y = torch.cat([y_train, wavg_y, mean_y], dim=0)
+                    
                     # A small number of averaged instances might be from the same
                     # monitored class, so they still have the appropriate
                     # one-hot label and we want to preserve those. Averages of
