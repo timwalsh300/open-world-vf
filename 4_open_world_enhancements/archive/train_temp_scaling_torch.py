@@ -72,7 +72,7 @@ for representation in ['dschuster16', 'schuster8']:
                 model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                                     61,
                                                     BEST_HYPERPARAMETERS[representation + '_' + protocol])
-                model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model.pt'))
+                model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model0.pt'))
                 model.to(device)
                 model.eval()
         except Exception as e:
@@ -91,13 +91,13 @@ for representation in ['dschuster16', 'schuster8']:
                 logits = model(x_val.to(device), training = False)
             print('Baseline model ECE:', check_calibration(logits.to('cpu'), y_val, 'baseline', protocol))
 
-            print('Finding the best temperature T for', representation, protocol)
-            def eval():
-                optimizer.zero_grad()
-                loss = criterion(temp_model(logits), y_val.to(device))
-                loss.backward()
-                return loss
-            optimizer.step(eval)
+#            print('Finding the best temperature T for', representation, protocol)
+#            def eval():
+#                optimizer.zero_grad()
+#                loss = criterion(temp_model(logits), y_val.to(device))
+#                loss.backward()
+#                return loss
+#            optimizer.step(eval)
         print('Optimal temperature: %.3f' % temp_model.temperature)
         print('Temperature Scaling model ECE:', check_calibration(temp_model(logits).to('cpu'), y_val.to('cpu'), 'temp_scaling', protocol))
-        torch.save(temp_model.state_dict(), (representation + '_' + protocol + '_temp_scaling_model.pt'))
+        torch.save(temp_model.state_dict(), (representation + '_' + protocol + '_temp_scaling_model0.pt'))

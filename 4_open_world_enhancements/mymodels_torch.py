@@ -161,7 +161,8 @@ class DFNetTunable(nn.Module):
 class TemperatureScaling(torch.nn.Module):
     def __init__(self):
         super(TemperatureScaling, self).__init__()
-        self.temperature = torch.nn.Parameter(torch.ones(1))
+        # initialize T to 1.5
+        self.temperature = torch.nn.Parameter(torch.full((1,), 1.5))
 
     def forward(self, logits):
         return logits / self.temperature
