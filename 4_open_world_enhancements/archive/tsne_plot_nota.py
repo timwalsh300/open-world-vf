@@ -76,7 +76,7 @@ for name, group in monitored_grouped:
 # their relationship to each other
 monitored_only = pandas.concat([sources, targets])
 monitored_only = monitored_only.drop(columns = monitored_only.columns[7680:7686])
-# df_to_tsne(monitored_only, 'monitored_only')
+df_to_tsne(monitored_only, 'monitored_only')
 
 # initialize a dataframe to hold uniform padding instances
 uniform_padding = pandas.DataFrame(columns = first_columns)
