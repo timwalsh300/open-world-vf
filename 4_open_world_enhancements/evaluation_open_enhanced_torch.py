@@ -68,13 +68,11 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # this is the MLE model that uses Max Softmax Probability or
     # Softmax Thresholding for OSR
     #
-    # we combine this with the Standard Model (Background Class), Mixup, Mixup Added,
-    # Standard Model + NOTA, and monitored only + NOTA methods of training data augmentation
+    # we combine this with the Standard Model (Background Class), Standard Model + Mixup,
+    # and monitored only + NOTA methods of training data augmentation
     if (approach == 'baseline' or
        approach == 'baseline_mixup' or
-       approach == 'baseline_mixup_added' or
-       approach == 'baseline_nota' or
-       approach == 'baseline_nota_monitored'):
+       approach == 'baseline_nota'):
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
@@ -97,43 +95,15 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         #print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
 
-    # this is mostly copied from the baseline approach but adds
-    # some lines to introduce the trained temp scaling layer produced by
-    # train_temp_scaling_torch.py
-    elif approach == 'temp_scaling':
+    # this is just a 60-way classification model relying only on MSP
+    # or Softmax Thresholding for OSR, with no unmonitored training data
+    # or output class
+    if (approach == 'baseline_monitored' or
+        approach == 'baseline_mixup_monitored'):
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                            61,
+                                            60,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
-        model.to(device)
-        model.eval()
-        temp_model = mymodels_torch.TemperatureScaling()
-        temp_model.load_state_dict(torch.load(representation + '_' + protocol + '_temp_scaling_model' + str(trial) + '.pt'))
-        temp_model.to(device)
-        temp_model.eval()
-        logits_batches = []
-        for x_test, y_test in test_loader:
-            with torch.no_grad():
-                logits = model(x_test.to(device), training = False)
-                logits_batches.append(temp_model(logits).to('cpu'))
-        logits_concatenated = torch.cat(logits_batches, dim = 0)
-        preds = torch.softmax(logits_concatenated, dim=1).detach().numpy()
-        scores = []
-        for i in range(len(preds)):
-            scores.append(max(preds[i][:60]))
-        print('ECE', check_calibration(scores, test_loader, approach, protocol))
-        return preds, scores
-
-    # this is mostly copied from the baseline approach but loads
-    # the trained MAP model with L2 prior regularization instead of the
-    # baseline MLE model
-    elif approach == 'map':
-        model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                            61,
-                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        # train_map_torch.py does a hyperparameter search over a range of L2 coefficients and
-        # saves the best model, at its lowest validation loss, at the following path
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_map_model' + str(trial) + '.pt'))
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model' + str(trial) + '.pt'))
         model.to(device)
         model.eval()
         logits_batches = []
@@ -144,61 +114,21 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         preds = torch.softmax(logits_concatenated, dim=1).detach().numpy()
         scores = []
         for i in range(len(preds)):
+            # Find the max softmax probability for any monitored
+            # class. This will be fairly low if the argmax was 60 or
+            # if the model was torn between two monitored classes.
+            # We're implying the the probability of 60 is 1.0 - this.
             scores.append(max(preds[i][:60]))
-        print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
-
-    # this is mostly copied from the baseline approach but loads
-    # the trained MAP model with L2 prior regularization instead of the
-    # baseline MLE model, and then does Monte Carlo Dropout and Bayesian
-    # model averaging before using Max Softmax Probability or
-    # Softmax Thresholding for OSR
-    elif approach == 'mcd_msp':
-        model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                            61,
-                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_map_model' + str(trial) + '.pt'))
-        preds, scores = get_bayesian_msp(test_loader, model)
-        print('ECE', check_calibration(scores, test_loader, approach, protocol))
-        return preds, scores
-
-    # this loads a trained MAP model with L2 prior regularization and then does Monte
-    # Carlo Dropout before using epistemic uncertainty to rank predictions when they
-    # are for any monitored class
-    #
-    # the intuition is that the epistemic uncertainty should be higher when we have
-    # a false positive than when we have a true positive
-    #
-    # ranking both monitored and unmonitored predictions by epistemic uncertainty is
-    # problematic because uncertainty will be low on both ends, so low epistemic
-    # uncertainty doesn't mean that an instance is obviously monitored; it could be
-    # obviously unmonitored too
-    elif approach == 'mcd_epistemic_uncertainty':
-        model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                            61,
-                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_map_model' + str(trial) + '.pt'))
-        return get_epistemic_uncertainty(test_loader, model)
-
-    # this loads a trained MAP model with L2 prior regularization and then does Monte
-    # Carlo Dropout before using only TOTAL uncertainty to rank predictions when they
-    # are for any monitored class
-    elif approach == 'mcd_total_uncertainty':
-        model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                            61,
-                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_map_model' + str(trial) + '.pt'))
-        return get_total_uncertainty(test_loader, model)
 
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
     # using maximum softmax probability to rank predictions when they are for any monitored class
     #
-    # we combine this with the Standard Model (Background Class), Mixup, Mixup Added,
-    # Standard Model + NOTA, and monitored only + NOTA methods of training data augmentation
+    # we combine this with the Standard Model (Background Class), Standard Model + Mixup,
+    # and monitored only + NOTA methods of training data augmentation
     elif (approach == 'sscd' or
          approach == 'sscd_mixup' or
-         approach == 'sscd_mixup_added' or
-         approach == 'sscd_nota' or
          approach == 'sscd_nota_monitored'):
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
@@ -210,21 +140,27 @@ def get_scores(test_loader, protocol, representation, approach, trial):
 
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
     # using epistemic uncertainty to rank predictions when they are for any monitored class
-    elif approach == 'sscd_epistemic_uncertainty':
+    #
+    # the intuition is that the epistemic uncertainty should be higher when we have
+    # a false positive than when we have a true positive
+    #
+    # ranking both monitored and unmonitored predictions by epistemic uncertainty is
+    # problematic because uncertainty will be low on both ends, so low epistemic
+    # uncertainty doesn't mean that an instance is obviously monitored; it could be
+    # obviously unmonitored too, so we only rank monitored predictions
+    elif approach == 'sscd_epistemic':
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
         model.load_state_dict(torch.load(representation + '_' + protocol + '_sscd_model' + str(trial) + '.pt'))
         return get_epistemic_uncertainty(test_loader, model)
-
-    # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
-    # using only TOTAL uncertainty to rank predictions when they are for any monitored class
-    elif approach == 'sscd_total_uncertainty':
+        
+    elif approach == 'sscd_epistemic_mixup':
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_sscd_model' + str(trial) + '.pt'))
-        return get_total_uncertainty(test_loader, model)
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_sscd_mixup_model' + str(trial) + '.pt'))
+        return get_epistemic_uncertainty(test_loader, model)
 
 def get_bayesian_msp(test_loader, model):
         model.to(device)
@@ -280,37 +216,6 @@ def get_epistemic_uncertainty(test_loader, model):
         #print('... highest epistemic uncertainty for a positive prediction', min(scores), numpy.argmin(scores))
         return preds_avg, scores
 
-def get_total_uncertainty(test_loader, model):
-        model.to(device)
-        model.eval()
-        mc_samples = 10
-        preds = numpy.zeros([mc_samples, len(test_loader.dataset), 61])
-        entropies = numpy.zeros([mc_samples, len(test_loader.dataset)])
-        for i in range(mc_samples):
-            logits_batches = []
-            for x_test, y_test in test_loader:
-                with torch.no_grad():
-                    logits_batches.append(model(x_test.to(device), training = True).to('cpu'))
-            logits_concatenated = torch.cat(logits_batches, dim = 0)
-            preds[i] = torch.softmax(logits_concatenated, dim=1).detach().numpy()
-        preds_avg = preds.mean(axis = 0)
-        # compute the total uncertainty for each test instance
-        total_uncertainties = -1 * numpy.sum(preds_avg * numpy.log(preds_avg), axis = 1)
-        # we negate the total uncertainties because precision_recall_curve() expects
-        # a higher score to be associated with a higher confidence prediction for the
-        # positive class, but a high uncertainty is a low confidence prediction
-        scores = [-unc for unc in total_uncertainties]
-        # now the min of scores is the highest uncertainty
-        highest_unc = min(scores)
-        for i in range(len(test_loader.dataset)):
-            # if the prediction was unmonitored, we rank it as low as possible without
-            # even considering the uncertainty
-            if numpy.argmax(preds_avg[i]) == 60:
-                scores[i] = highest_unc
-        #print('lowest total uncertainty for a positive prediction', max(scores), numpy.argmax(scores))
-        #print('highest total uncertainty for a positive prediction', min(scores), numpy.argmin(scores))
-        return preds_avg, scores
-
 print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -348,11 +253,12 @@ for protocol in ['https', 'tor']:
             continue
 
         # I'll add more approaches to this list as I build them
-        for approach in ['baseline',                       'baseline_mixup',
-                         'sscd', 'sscd_epistemic_uncertainty', 'sscd_mixup']:
+        for approach in ['baseline', 'baseline_mixup',
+                         'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_epistemic_mixup']:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
+            trial_t_75_FPRs = []
             trial_accuracies = []
             for trial in range(10):
                 print('Getting scores for', protocol, approach, '... Trial', trial)
@@ -366,6 +272,14 @@ for protocol in ['https', 'tor']:
                 else:
                     t_50 = thresholds_val[t_50_index]
                 print('... t_50 validation recall, precision, and threshold are', recalls_val[t_50_index], precisions_val[t_50_index], t_50)
+                
+                # find t_75 on the validation set for this model
+                t_75_index = numpy.argmin(numpy.abs(recalls_val - 0.75))
+                if t_75_index == len(thresholds_val):
+                    t_75 = thresholds_val[-1]
+                else:
+                    t_75 = thresholds_val[t_75_index]
+                print('... t_75 validation recall, precision, and threshold are', recalls_val[t_75_index], precisions_val[t_75_index], t_75)
                 
                 # run the model against the test set
                 preds, scores = get_scores(test_loader, protocol, representation, approach, trial)
@@ -398,10 +312,26 @@ for protocol in ['https', 'tor']:
                 print('... False positives at t_50:', len(FP_visits))
                 if len(FP_visits) <= 10:
                     print(FP_visits)
+                    
+                preds_binary = []
+                for i in range(len(scores)):
+                    if scores[i] >= t_75:
+                        preds_binary.append(True)
+                    else:
+                        preds_binary.append(False)
+                FP_visits = []
+                for i in range(len(preds_binary)):
+                    if preds_binary[i] and not true_binary[i]:
+                       FP_visits.append(splits['visits_test_64000'].iloc[i])
+                trial_t_75_FPRs.append(len(FP_visits) / 64000)
+                print('... False positives at t_75:', len(FP_visits))
+                if len(FP_visits) <= 10:
+                    print(FP_visits)
 
             print('Mean recall at precision of 1.0:', numpy.mean(trial_best_case_recalls), 'StdDev: ', numpy.std(trial_best_case_recalls))
             print('Mean accuracy within monitored:', numpy.mean(trial_accuracies), 'StdDev: ', numpy.std(trial_accuracies))
             print('Mean FPR at t_50:', numpy.mean(trial_t_50_FPRs), 'StdDev: ', numpy.std(trial_t_50_FPRs))
+            print('Mean FPR at t_75:', numpy.mean(trial_t_75_FPRs), 'StdDev: ', numpy.std(trial_t_75_FPRs))
             interpolated_precisions = []
             for trial_score in trial_scores:
                 trial_precision, trial_recall, _ = precision_recall_curve(true_binary, trial_score)
@@ -416,10 +346,11 @@ for protocol in ['https', 'tor']:
             print('-------------------------\n')
 
         # create and save the P-R curve figure
-        colors = ['#000000',            '#ff9900',
-                  '#000000', '#ff0000', '#ff9900']
-        line_styles = ['-', '-',
-                       ':', ':', ':']
+        #         std model             mixup                 nota
+        colors = ['#000000',            '#ff0000',
+                  '#000000', '#999999', '#ff0000', '#ff9900',]
+        line_styles = ['-', '-', '-', '-',
+                       ':', ':', ':', ':']
         num_styles = len(line_styles)
         num_colors = len(colors)
         plt.figure(figsize=(16, 12))
@@ -436,6 +367,6 @@ for protocol in ['https', 'tor']:
         plt.xlim(0.5, 1)
         plt.ylim(0.5, 1)
         plt.grid(True)
-        plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
+        # plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
         pr_c_augmentatiourve_data = {}
         print('-------------------------\n')
