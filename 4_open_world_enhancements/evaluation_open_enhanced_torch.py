@@ -23,6 +23,7 @@ BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv
                             'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
 
 pr_curve_data = {}
+    
 common_recall_levels = numpy.linspace(0, 1, 500)
 
 # this plots and saves a reliability diagram and then
@@ -129,7 +130,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # and monitored only + NOTA methods of training data augmentation
     elif (approach == 'sscd' or
          approach == 'sscd_mixup' or
-         approach == 'sscd_nota_monitored'):
+         approach == 'sscd_nota'):
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
@@ -148,18 +149,13 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # problematic because uncertainty will be low on both ends, so low epistemic
     # uncertainty doesn't mean that an instance is obviously monitored; it could be
     # obviously unmonitored too, so we only rank monitored predictions
-    elif approach == 'sscd_epistemic':
+    elif (approach == 'sscd_epistemic' or
+         approach == 'sscd_mixup_epistemic' or
+         approach == 'sscd_nota_epistemic'):
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_sscd_model' + str(trial) + '.pt'))
-        return get_epistemic_uncertainty(test_loader, model)
-        
-    elif approach == 'sscd_epistemic_mixup':
-        model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
-                                            61,
-                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_sscd_mixup_model' + str(trial) + '.pt'))
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach[:-10] + '_model' + str(trial) + '.pt'))
         return get_epistemic_uncertainty(test_loader, model)
 
 def get_bayesian_msp(test_loader, model):
@@ -252,9 +248,11 @@ for protocol in ['https', 'tor']:
         except Exception as e:
             continue
 
+        #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
+        #    pr_curve_data = pickle.load(handle)
         # I'll add more approaches to this list as I build them
-        for approach in ['baseline', 'baseline_mixup',
-                         'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_epistemic_mixup']:
+        for approach in ['baseline',               'baseline_mixup',                     'baseline_nota',
+                         'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_mixup_epistemic', 'sscd_nota', 'sscd_nota_epistemic']:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
@@ -344,13 +342,19 @@ for protocol in ['https', 'tor']:
             pr_auc = auc(common_recall_levels, mean_precisions)
             print('Average PR-AUC:', pr_auc)
             print('-------------------------\n')
+        
+        # save this for future runs, so we don't have to do
+        # ten trials for every approach every time we add
+        # a new approach
+        with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
+            pickle.dump(pr_curve_data, handle)
 
         # create and save the P-R curve figure
-        #         std model             mixup                 nota
-        colors = ['#000000',            '#ff0000',
-                  '#000000', '#999999', '#ff0000', '#ff9900',]
-        line_styles = ['-', '-', '-', '-',
-                       ':', ':', ':', ':']
+        #          std model  epistemic  mixup                 nota
+        colors = ['#000000',            '#ff0000',            '#0066ff',
+                  '#000000', '#000000', '#ff0000', '#ff0000', '#0066ff', '#0066ff']
+        line_styles = ['-',             '-',                  '-',
+                       '-.', ':',       '-.', ':',            '-.', ':']
         num_styles = len(line_styles)
         num_colors = len(colors)
         plt.figure(figsize=(16, 12))
@@ -367,6 +371,6 @@ for protocol in ['https', 'tor']:
         plt.xlim(0.5, 1)
         plt.ylim(0.5, 1)
         plt.grid(True)
-        # plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
+        plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
         pr_c_augmentatiourve_data = {}
         print('-------------------------\n')
