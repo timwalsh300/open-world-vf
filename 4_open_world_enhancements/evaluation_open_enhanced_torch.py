@@ -158,6 +158,32 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach[:-10] + '_model' + str(trial) + '.pt'))
         return get_epistemic_uncertainty(test_loader, model)
 
+    # this loads a trained baseline model and OpenGAN discriminator and returns
+    # the baseline model predictions and scores from the discriminator, so the
+    # predictions will be identical (and not interesting) but the binary monitored vs.
+    # unmonitored scores could be very different compared to the baseline
+    elif (approach == 'baseline_opengan'):
+        model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
+                                            61,
+                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
+        model.to(device)
+        model.eval()
+        discriminator = mymodels_torch.Discriminator()
+        discriminator.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_opengan_model' + str(trial) + '.pt'))
+        discriminator.to(device)
+        discriminator.eval()
+        logits_batches = []
+        scores_batches = []
+        for x_test, y_test in test_loader:
+            with torch.no_grad():
+                logits_batches.append(model(x_test.to(device), training = False).to('cpu'))
+                scores_batches.append(discriminator(model.extract_features(x_test.to(device), training = False)).squeeze().to('cpu'))
+        logits_concatenated = torch.cat(logits_batches, dim = 0)
+        preds = torch.softmax(logits_concatenated, dim=1).detach().numpy()
+        scores_concatenated = torch.cat(scores_batches, dim = 0).numpy()
+        return preds, scores_concatenated
+
 def get_bayesian_msp(test_loader, model):
         model.to(device)
         model.eval()
@@ -221,8 +247,8 @@ for protocol in ['https', 'tor']:
             val_tensors = torch.load(representation + '_' + protocol + '_val_tensors.pt')
             val_dataset = torch.utils.data.TensorDataset(*val_tensors)
             val_loader = torch.utils.data.DataLoader(val_dataset,
-                                                      batch_size=128,
-                                                      shuffle=False)
+                                                     batch_size=128,
+                                                     shuffle=False)
             y_val_batches = []
             for _, y_val in val_loader:
                 y_val_batches.append(y_val)
@@ -248,10 +274,10 @@ for protocol in ['https', 'tor']:
         except Exception as e:
             continue
 
-        #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
-        #    pr_curve_data = pickle.load(handle)
+        with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
+            pr_curve_data = pickle.load(handle)
         # I'll add more approaches to this list as I build them
-        for approach in ['baseline',               'baseline_mixup',                     'baseline_nota',
+        for approach in ['baseline',               'baseline_mixup',                     'baseline_nota',                  , 'baseline_opengan',
                          'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_mixup_epistemic', 'sscd_nota', 'sscd_nota_epistemic']:
             trial_scores = []
             trial_best_case_recalls = []
@@ -350,10 +376,10 @@ for protocol in ['https', 'tor']:
             pickle.dump(pr_curve_data, handle)
 
         # create and save the P-R curve figure
-        #          std model  epistemic  mixup                 nota
-        colors = ['#000000',            '#ff0000',            '#0066ff',
+        #          std model  epistemic  mixup                 nota                  opengan
+        colors = ['#000000',            '#ff0000',            '#0066ff',            '#00cc00',
                   '#000000', '#000000', '#ff0000', '#ff0000', '#0066ff', '#0066ff']
-        line_styles = ['-',             '-',                  '-',
+        line_styles = ['-',             '-',                  '-',                  '-',
                        '-.', ':',       '-.', ':',            '-.', ':']
         num_styles = len(line_styles)
         num_colors = len(colors)
@@ -372,5 +398,5 @@ for protocol in ['https', 'tor']:
         plt.ylim(0.5, 1)
         plt.grid(True)
         plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
-        pr_c_augmentatiourve_data = {}
+        pr_curve_data = {}
         print('-------------------------\n')

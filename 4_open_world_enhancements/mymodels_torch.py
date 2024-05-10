@@ -87,7 +87,7 @@ class DFNetTunable(nn.Module):
         x = self.block1_bn2(x)
         x = self.block1_act2(x)
         x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
-        x = torch.nn.functional.dropout(self.block1_pool(x),
+        x = F.dropout(self.block1_pool(x),
                                         p = self.hyperparameters['conv_dropout'],
                                         training = training)
 
@@ -101,7 +101,7 @@ class DFNetTunable(nn.Module):
         x = self.block2_bn2(x)
         x = self.block2_act2(x)
         x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
-        x = torch.nn.functional.dropout(self.block2_pool(x),
+        x = F.dropout(self.block2_pool(x),
                                         p = self.hyperparameters['conv_dropout'],
                                         training = training)
 
@@ -115,7 +115,7 @@ class DFNetTunable(nn.Module):
         x = self.block3_bn2(x)
         x = self.block3_act2(x)
         x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
-        x = torch.nn.functional.dropout(self.block3_pool(x),
+        x = F.dropout(self.block3_pool(x),
                                         p = self.hyperparameters['conv_dropout'],
                                         training = training)
 
@@ -129,7 +129,7 @@ class DFNetTunable(nn.Module):
         x = self.block4_bn2(x)
         x = self.block4_act2(x)
         x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
-        x = torch.nn.functional.dropout(self.block4_pool(x),
+        x = F.dropout(self.block4_pool(x),
                                         p = self.hyperparameters['conv_dropout'],
                                         training = training)
 
@@ -138,13 +138,13 @@ class DFNetTunable(nn.Module):
         # Fully connected layers
         x = self.fc1(x)
         x = self.fc1_bn(x)
-        x = torch.nn.functional.dropout(self.fc1_act(x),
+        x = F.dropout(self.fc1_act(x),
                                         p = self.hyperparameters['fc_dropout'],
                                         training = training)
 
         x = self.fc2(x)
         x = self.fc2_bn(x)
-        x = torch.nn.functional.dropout(self.fc2_act(x),
+        x = F.dropout(self.fc2_act(x),
                                         p = self.hyperparameters['fc_dropout'],
                                         training = training)
 
@@ -154,6 +154,74 @@ class DFNetTunable(nn.Module):
     def L2reg(self, l2_coeff):
         l2reg_sum = l2_coeff * sum(torch.square(theta).sum() for theta in self.parameters())
         return l2reg_sum
+
+    # This gives us the features from the last convolutional block
+    # to use with our OpenGAN discriminator
+    #
+    # Instead of flattening, we use global average pooling to get a
+    # 256x1x1 shape from the 256 feature maps
+    #
+    # training = false because we only use this with a pre-trained model
+    def extract_features(self, x, training = False):
+        # Block 1
+        x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
+        x = self.block1_conv1(x)
+        x = self.block1_bn1(x)
+        x = self.block1_act1(x)
+        x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
+        x = self.block1_conv2(x)
+        x = self.block1_bn2(x)
+        x = self.block1_act2(x)
+        x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
+        x = F.dropout(self.block1_pool(x),
+                                        p = self.hyperparameters['conv_dropout'],
+                                        training = training)
+
+        # Block 2
+        x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
+        x = self.block2_conv1(x)
+        x = self.block2_bn1(x)
+        x = self.block2_act1(x)
+        x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
+        x = self.block2_conv2(x)
+        x = self.block2_bn2(x)
+        x = self.block2_act2(x)
+        x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
+        x = F.dropout(self.block2_pool(x),
+                                        p = self.hyperparameters['conv_dropout'],
+                                        training = training)
+
+        # Block 3
+        x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
+        x = self.block3_conv1(x)
+        x = self.block3_bn1(x)
+        x = self.block3_act1(x)
+        x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
+        x = self.block3_conv2(x)
+        x = self.block3_bn2(x)
+        x = self.block3_act2(x)
+        x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
+        x = F.dropout(self.block3_pool(x),
+                                        p = self.hyperparameters['conv_dropout'],
+                                        training = training)
+
+        # Block 4
+        x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
+        x = self.block4_conv1(x)
+        x = self.block4_bn1(x)
+        x = self.block4_act1(x)
+        x = F.pad(x, (self.conv_padding_left, self.conv_padding_right))
+        x = self.block4_conv2(x)
+        x = self.block4_bn2(x)
+        x = self.block4_act2(x)
+        x = F.pad(x, (self.pool_padding_left, self.pool_padding_right))
+        x = F.dropout(self.block4_pool(x),
+                                        p = self.hyperparameters['conv_dropout'],
+                                        training = training)
+        
+        x = x.unsqueeze(-1)
+        x = F.adaptive_avg_pool2d(x, 1)
+        return x
 
 # This defines a temperature scaling layer that has
 # just one parameter, the temperature, to scale
@@ -436,6 +504,82 @@ class DFNetTunableSSCD(nn.Module):
         bernoulli_kl_loss += neurons[representation][5] * (self.fc2_cd.p * torch.log(self.fc2_cd.p / 0.5) + (1 - self.fc2_cd.p) * torch.log((1 - self.fc2_cd.p) / 0.5))
         return bernoulli_kl_loss
 
+# This is our adaptation of the generator
+# for OpenGAN_fea by Kong et al.
+#
+# Their Jupyter Notebook example differs from what's described
+# in the paper. It is a DCGAN that takes noise inputs of size
+# 1x1 with 100 channels, and works depth-wise to increase that
+# to the same 1x1 but with nc channels. nc = 512 for block 4 of
+# ResNet 18, but nc = 256 for block 4 of our model. The paper
+# instead described a generator with fully-connected layers that
+# output shape 1x512, which is what you get when you flatten the
+# output of ResNet18 block 4.
+class Generator(nn.Module):
+    def __init__(self, nz=100, ngf=64, nc=256):
+        super(Generator, self).__init__()
+        self.nz = nz
+        self.ngf = ngf
+        self.nc = nc
+        
+        self.main = nn.Sequential(
+            nn.Conv2d( self.nz, self.ngf * 8, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(self.ngf * 8),
+            nn.ReLU(True),
+            nn.Conv2d(self.ngf * 8, self.ngf * 4, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(self.ngf * 4),
+            nn.ReLU(True),
+            nn.Conv2d( self.ngf * 4, self.ngf * 2, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(self.ngf * 2),
+            nn.ReLU(True),
+            nn.Conv2d( self.ngf * 2, self.ngf*4, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(self.ngf*4),
+            nn.ReLU(True),
+            nn.Conv2d( self.ngf*4, self.nc, 1, 1, 0, bias=True)
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
+# This is our adaptation of the discriminator
+# for OpenGAN_fea by Kong et al.
+#
+# Their Jupyter Notebook example differs from what's described
+# in the paper. It is a CNN that takes inputs of size
+# 1x1 with nc channels, and works depth-wise to reduce that
+# to the same 1x1 but with 1 channel, or just a single value,
+# which is the discriminator's prediction. The paper
+# instead described a discriminator with fully-connected layers
+# that got progressively smaller to reduce an input of nc
+# dimensions to a single value output.
+#
+# For this to work on the output of our model's block 4, we need
+# to use a global avg pooling layer or AdaptiveAvgPool2d(1) to
+# reduce the 256 feature maps to a 1x1 shape with 256 channels.
+class Discriminator(nn.Module):
+    def __init__(self, nc=256, ndf=64):
+        super(Discriminator, self).__init__()
+        self.nc = nc
+        self.ndf = ndf
+        self.main = nn.Sequential(
+            nn.Conv2d(self.nc, self.ndf*8, 1, 1, 0, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(self.ndf*8, self.ndf*4, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(self.ndf*4),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(self.ndf*4, self.ndf*2, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(self.ndf*2),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(self.ndf*2, self.ndf, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(self.ndf),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(self.ndf, 1, 1, 1, 0, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
 # this is just a sanity check for the baseline model
 if __name__ == '__main__':
     CLASSES = 61
@@ -452,5 +596,5 @@ if __name__ == '__main__':
             layer.register_forward_hook(print_output_size)
         model.eval()
         dummy_input = torch.rand(1, *INPUT_SHAPES[name])
-        dummy_output = model(dummy_input, training = False)
+        dummy_output = model.extract_features(dummy_input, training = False)
         print(dummy_output)
