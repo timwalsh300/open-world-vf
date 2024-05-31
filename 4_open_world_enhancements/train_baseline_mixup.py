@@ -8,14 +8,17 @@
 import torch
 import mymodels_torch
 import numpy
+import sys
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
 
+protocol = sys.argv[1]
+
 # we manually copy and paste these hyperparameters from the output of search_open.py
-# and we've also appended alpha to this dictionary after tuning between 0.05 and 0.5
-BEST_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128, 'alpha': 0.1},
-                        'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64, 'alpha': 0.05}}
+# and we've also appended alpha to this dictionary after tuning between 0.01 and 0.5
+BEST_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128, 'alpha': 0.07},
+                        'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64, 'alpha': 0.02}}
 
 # helpfully provided by ChatGPT, and now modified to support tuning for alpha
 class EarlyStopping:
@@ -57,7 +60,7 @@ print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 for representation in ['dschuster16', 'schuster8']:
-    for protocol in ['https', 'tor']:
+    #for protocol in ['https', 'tor']:
         try:
             # if they exist, load the data tensors that resulted from raw_to_csv.py,
             # csv_to_pkl.py, csv_to_pkl_open.py, and keras_to_torch_splits.py
@@ -77,7 +80,8 @@ for representation in ['dschuster16', 'schuster8']:
             continue
 
         #global_val_loss_min = numpy.Inf
-        #for alpha in [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]:
+        #trial = 0
+        #for alpha in [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15]:
         for trial in range(10):
             global_val_loss_min = numpy.Inf
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
@@ -98,6 +102,7 @@ for representation in ['dschuster16', 'schuster8']:
                     optimizer.zero_grad()
                     x_train = x_train.to(device)
                     y_train = y_train.to(device)
+                    #lam = numpy.random.beta(alpha, alpha)
                     lam = numpy.random.beta(BEST_HYPERPARAMETERS[representation + '_' + protocol]['alpha'],
                                             BEST_HYPERPARAMETERS[representation + '_' + protocol]['alpha'])
                     # shuffle
