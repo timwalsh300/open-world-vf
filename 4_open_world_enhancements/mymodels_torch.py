@@ -15,7 +15,7 @@ from bayesian_torch.layers import Conv1dFlipout, LinearFlipout
 class DFNetTunable(nn.Module):
     def __init__(self, input_shape, classes, hyperparameters):
         super(DFNetTunable, self).__init__()
-        self.hyperparameters = hyperparameters        
+        self.hyperparameters = hyperparameters
         self.conv_padding_left = int(hyperparameters['kernel'] / 2)
         self.pool_padding_left = int(hyperparameters['pool'] / 2)
         self.conv_padding_right = int(hyperparameters['kernel'] / 2) - 1
@@ -156,10 +156,7 @@ class DFNetTunable(nn.Module):
         return l2reg_sum
 
     # This gives us the features from the last convolutional block
-    # to use with our OpenGAN discriminator
-    #
-    # Instead of flattening, we use global average pooling to get a
-    # 256x1x1 shape from the 256 feature maps
+    # to use with our OpenGAN discriminators
     #
     # training = false because we only use this with a pre-trained model
     def extract_features(self, x, training = False):
@@ -218,9 +215,23 @@ class DFNetTunable(nn.Module):
         x = F.dropout(self.block4_pool(x),
                                         p = self.hyperparameters['conv_dropout'],
                                         training = training)
+        return x
         
+    # this turns the 256 feature maps into a 1x1 shape
+    # with 256 channels with global average pooling
+    # to use with the example code for OpenGAN_fea
+    def extract_features_gap(self, x):
+        x = self.extract_features(x)
         x = x.unsqueeze(-1)
         x = F.adaptive_avg_pool2d(x, 1)
+        return x
+        
+    # this flattens the 256 feature maps the same way
+    # that the baseline architecture does to use our own
+    # discriminator architecture for OpenGAN_fea
+    def extract_features_flattened(self, x):
+        x = self.extract_features(x)
+        x = self.flatten(x)
         return x
 
 # This defines a temperature scaling layer that has
@@ -515,9 +526,9 @@ class DFNetTunableSSCD(nn.Module):
 # instead described a generator with fully-connected layers that
 # output shape 1x512, which is what you get when you flatten the
 # output of ResNet18 block 4.
-class Generator(nn.Module):
+class GeneratorOpenGAN_fea(nn.Module):
     def __init__(self, nz=100, ngf=64, nc=256):
-        super(Generator, self).__init__()
+        super(GeneratorOpenGAN_fea, self).__init__()
         self.nz = nz
         self.ngf = ngf
         self.nc = nc
@@ -556,9 +567,9 @@ class Generator(nn.Module):
 # For this to work on the output of our model's block 4, we need
 # to use a global avg pooling layer or AdaptiveAvgPool2d(1) to
 # reduce the 256 feature maps to a 1x1 shape with 256 channels.
-class Discriminator(nn.Module):
+class DiscriminatorOpenGAN_fea(nn.Module):
     def __init__(self, nc=256, ndf=64):
-        super(Discriminator, self).__init__()
+        super(DiscriminatorOpenGAN_fea, self).__init__()
         self.nc = nc
         self.ndf = ndf
         self.main = nn.Sequential(
@@ -580,6 +591,198 @@ class Discriminator(nn.Module):
     def forward(self, input):
         return self.main(input)
 
+# This is our adaptation of the MLP generator for
+# OpenGAN_fea described in the paper by Kong et al.
+# to pair with our DiscriminatorDFNet
+class GeneratorDFNet_fea(nn.Module):
+    def __init__(self, input_shape, hyperparameters, nz = 100):
+        super(GeneratorDFNet_fea, self).__init__()
+        conv_downsampling = hyperparameters['conv_stride'] ** 8 if hyperparameters['conv_stride'] > 1 else 1
+        pool_downsampling = hyperparameters['pool_stride'] ** 4 if hyperparameters['pool_stride'] > 1 else 1
+        
+        self.main = nn.Sequential(
+            nn.Linear(nz, nz * 8),
+            nn.BatchNorm1d(nz * 8),
+            torch.nn.LeakyReLU(),
+            nn.Linear(nz * 8, nz * 4),
+            nn.BatchNorm1d(nz * 4),
+            torch.nn.LeakyReLU(),
+            nn.Linear(nz * 4, nz * 2),
+            nn.BatchNorm1d(nz * 2),
+            torch.nn.LeakyReLU(),
+            nn.Linear(nz * 2, nz * 4),
+            nn.BatchNorm1d(nz * 4),
+            torch.nn.LeakyReLU(),
+            nn.Linear(in_features=nz * 4, out_features=hyperparameters['filters'] * math.ceil(input_shape[1] / (conv_downsampling * pool_downsampling))),
+            nn.Tanh()
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
+# This is our own discriminator architecture
+# for OpenGAN_fea by Kong et al.
+#
+# It uses the same fully-connected architecture
+# from our baseline model, so it's a continuation
+# of the baseline model after the convolutional
+# blocks that get invoked with extract_features()
+#
+# It outputs a logit per class which we can treat
+# as a binary decision by using
+# torch.max(torch.softmax(x, dim=1)[:, :60], dim=1)
+class DiscriminatorDFNet_fea(nn.Module):
+    def __init__(self, input_shape, classes, hyperparameters):
+        super(DiscriminatorDFNet_fea, self).__init__()
+        self.hyperparameters = hyperparameters
+        conv_downsampling = hyperparameters['conv_stride'] ** 8 if hyperparameters['conv_stride'] > 1 else 1
+        pool_downsampling = hyperparameters['pool_stride'] ** 4 if hyperparameters['pool_stride'] > 1 else 1
+        self.fc1 = nn.Linear(in_features=hyperparameters['filters'] * math.ceil(input_shape[1] / (conv_downsampling * pool_downsampling)), out_features=hyperparameters['fc_neurons'])
+        self.fc1_bn = nn.BatchNorm1d(num_features=hyperparameters['fc_neurons'])
+        self.fc1_act = nn.ReLU() if hyperparameters['fc_activation'] == 'relu' else nn.ELU()
+
+        self.fc2 = nn.Linear(in_features=hyperparameters['fc_neurons'], out_features=hyperparameters['fc_neurons'])
+        self.fc2_bn = nn.BatchNorm1d(num_features=hyperparameters['fc_neurons'])
+        self.fc2_act = nn.ReLU() if hyperparameters['fc_activation'] == 'relu' else nn.ELU()
+
+        self.fc3 = nn.Linear(in_features=hyperparameters['fc_neurons'], out_features=classes)
+
+    def forward(self, x, training):
+        x = self.fc1(x)
+        x = self.fc1_bn(x)
+        x = F.dropout(self.fc1_act(x),
+                      p = self.hyperparameters['fc_dropout'],
+                      training = training)
+        x = self.fc2(x)
+        x = self.fc2_bn(x)
+        x = F.dropout(self.fc2_act(x),
+                      p = self.hyperparameters['fc_dropout'],
+                      training = training)
+        x = self.fc3(x)
+        return x
+
+# For use with the OpenGAN_pix approach, in which the GAN
+# works in input space instead of feature space,
+# this is our adaptation of the generator architecture
+# used in GANDaLF by Oh et al. To our knowledge, it is the
+# only architecture that has been shown for producing 1D network
+# traffic, which seems like a good starting point.
+#
+# the size of the first dense layer, the reshaping operation
+# before the convolutional layers, the number of input channels
+# to the first convolutional layer, and the number of ouput
+# channels from the final convolutional layer are all calculated
+# based on the "input_shape" that the DFNet model (which will be
+# the discriminator) expects
+class GeneratorGANDaLF(nn.Module):
+    def __init__(self, input_shape):
+        super(GeneratorGANDaLF, self).__init__()
+        self.input_shape = input_shape
+        # Noise vector to initial dense layer
+        self.dense1 = nn.Linear(100, input_shape[0] * int(input_shape[1] / 16))
+        self.bn_dense1 = nn.BatchNorm1d(input_shape[0] * int(input_shape[1] / 16))
+        self.dense2 = nn.Linear(input_shape[0] * int(input_shape[1] / 16), input_shape[0] * int(input_shape[1] / 16))
+        self.bn_dense2 = nn.BatchNorm1d(input_shape[0] * int(input_shape[1] / 16))
+        self.dense3 = nn.Linear(input_shape[0] * int(input_shape[1] / 16), input_shape[0] * int(input_shape[1] / 16))
+        self.bn_dense3 = nn.BatchNorm1d(input_shape[0] * int(input_shape[1] / 16))
+        
+        
+        # Define the sequential layers
+        self.upsample1 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.conv1 = nn.Conv1d(input_shape[0], 512, kernel_size=5, padding=2)
+        self.bn1 = nn.BatchNorm1d(512)
+
+        self.upsample2 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.conv2 = nn.Conv1d(512, 512, kernel_size=5, padding=2)
+        self.bn2 = nn.BatchNorm1d(512)
+
+        self.upsample3 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.conv3 = nn.Conv1d(512, 256, kernel_size=5, padding=2)
+        self.bn3 = nn.BatchNorm1d(256)
+
+        self.upsample4 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.conv4 = nn.Conv1d(256, 256, kernel_size=5, padding=2)
+        self.bn4 = nn.BatchNorm1d(256)
+
+        self.conv5 = nn.Conv1d(256, 128, kernel_size=5, padding=2)
+        self.bn5 = nn.BatchNorm1d(128)
+
+        self.conv6 = nn.Conv1d(128, 128, kernel_size=5, padding=2)
+        self.bn6 = nn.BatchNorm1d(128)
+
+        self.conv7 = nn.Conv1d(128, 64, kernel_size=5, padding=2)
+        self.bn7 = nn.BatchNorm1d(64)
+
+        self.conv8 = nn.Conv1d(64, 64, kernel_size=5, padding=2)
+        self.bn8 = nn.BatchNorm1d(64)
+
+        self.final_conv = nn.Conv1d(64, self.input_shape[0], kernel_size=5, padding=2)
+        self.final_tanh = nn.Tanh()
+
+    def forward(self, x, training):
+        x = self.dense1(x)
+        x = self.bn_dense1(x)
+        x = F.relu(x)
+        x = self.dense2(x)
+        x = self.bn_dense2(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.5, training = training)
+        x = self.dense2(x)
+        x = self.bn_dense2(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.5, training = training)
+        x = x.view(-1, self.input_shape[0], int(self.input_shape[1] / 16))
+        
+        # Applying upsample and convolutional layers
+        x = self.upsample1(x)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = F.relu(x)
+        
+        x = self.upsample2(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.3, training = training)
+        
+        x = self.upsample3(x)
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.3, training = training)
+        
+        x = self.upsample4(x)
+        x = self.conv4(x)
+        x = self.bn4(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.3, training = training)
+        
+        # Regular convolution layers
+        x = self.conv5(x)
+        x = self.bn5(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.3, training = training)
+        
+        x = self.conv6(x)
+        x = self.bn6(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.3, training = training)
+        
+        x = self.conv7(x)
+        x = self.bn7(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.3, training = training)
+        
+        x = self.conv8(x)
+        x = self.bn8(x)
+        x = F.relu(x)
+        x = F.dropout(x, p = 0.3, training = training)
+        
+        # Final output layer
+        x = self.final_conv(x)
+        x = self.final_tanh(x)
+        return x
+
 # this is just a sanity check for the baseline model
 if __name__ == '__main__':
     CLASSES = 61
@@ -591,10 +794,30 @@ if __name__ == '__main__':
 
     for name in ['schuster8_tor', 'dschuster16_https']:
         model = DFNetTunable(INPUT_SHAPES[name], CLASSES, BEST_HYPERPARAMETERS[name])
+        print('...DFNetTunable', name)
         print(model)
         for layer in model.modules():
             layer.register_forward_hook(print_output_size)
         model.eval()
-        dummy_input = torch.rand(1, *INPUT_SHAPES[name])
-        dummy_output = model.extract_features(dummy_input, training = False)
-        print(dummy_output)
+        print('-----------------------------------')
+        dummy_input = torch.rand(BEST_HYPERPARAMETERS[name]['batch_size'], *INPUT_SHAPES[name])
+        print('...shape of dummy input to DFNetTunable')
+        print(dummy_input.shape)
+        dummy_features = model.extract_features_flattened(dummy_input)
+        print('...shape of features from DFNetTunable.extract_features_flattened()')
+        print(dummy_features.shape)
+        discriminator = DiscriminatorDFNet_fea(INPUT_SHAPES[name], CLASSES, BEST_HYPERPARAMETERS[name])
+        dummy_output = discriminator(dummy_features, training = False)
+        print('...shape of output from DiscriminatorDFNet_fea')
+        print(dummy_output.shape)
+        print('-----------------------------------')
+        generator = GeneratorGANDaLF(INPUT_SHAPES[name])
+        noise = torch.randn(BEST_HYPERPARAMETERS[name]['batch_size'], 100)
+        print('...shape of noise going into GeneratorGANDaLF')
+        print(noise.shape)
+        generated_data = generator(noise, training = False)
+        print('...shape of generated data')
+        print(generated_data.shape)
+        output = model(generated_data, training = False)
+        print('...shape of output of DFNet model(generated data)')
+        print(output.shape)
