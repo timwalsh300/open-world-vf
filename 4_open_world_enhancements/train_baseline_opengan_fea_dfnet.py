@@ -1,4 +1,4 @@
-# This takes arguments for the protocol and lambda_G. It loads
+# This takes arguments for the protocol and lambda_g. It loads
 # pre-trained baseline models to use as feature extractors
 # and trains a discriminator on real monitored and
 # unmonitored class features, plus fake monitored features
@@ -20,14 +20,14 @@ import matplotlib.pyplot as plt
 
 protocol = sys.argv[1]
 
-plot_tsne = True
+plot_tsne = False
 
 # 0.00 = only real unmonitored instances, same as baseline
 # 0.25 = overweight real unmonitored instances
 # 0.50 = equal weight for real unmonitored and fake monitored
 # 0.75 = overweight fake monitored instances
 # 1.00 = only fake monitored, for when training data is monitored-only
-lambda_G = float(sys.argv[2])
+lambda_g = float(sys.argv[2])
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
@@ -72,7 +72,7 @@ class EarlyStopping:
         if self.verbose:
             self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
             #self.trace_func(f'Validation PR-AUC increased ({self.val_loss_min:.6f} --> {val_loss:.6f})...')
-        #torch.save(model.state_dict(), self.path)
+        torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
 
 print(torch.cuda.is_available())
@@ -96,10 +96,10 @@ for representation in ['dschuster16', 'schuster8']:
                                                        batch_size = int(0.33 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # further adjust the number of real unmonitored instances
-            # by 1 - lambda_G
+            # by 1 - lambda_g
             try:
                 train_unmon_loader = torch.utils.data.DataLoader(train_unmon_dataset,
-                                                       batch_size = int((1 - lambda_G) * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                                                       batch_size = int((1 - lambda_g) * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # this is a workaround for the fact that the batch size can't be 0,
             # but we want to effectively put a weight of 0 on real unmonitored
@@ -116,10 +116,15 @@ for representation in ['dschuster16', 'schuster8']:
             print(e)
             continue
         
+        #trial = 0
         lambda_fm = 1e-4
+        lambda_e = 1
         #for lambda_fm in [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]:
         #    print('...lambda_fm =', lambda_fm)
-        for trial in range(1):
+        #for lambda_e in [1, 2, 3, 4, 5]:
+        #    print('...lambda_e =', lambda_e)
+        for trial in range(10):
+            print('...lambda_g =', lambda_g)
             # load the pre-trained model that does feature extraction
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                                 61,
@@ -143,15 +148,15 @@ for representation in ['dschuster16', 'schuster8']:
             netG.to(device)
             optimizerG = torch.optim.Adam(netG.parameters(), lr=0.0001)
             criterionG = torch.nn.BCEWithLogitsLoss()
-            early_stopping = EarlyStopping(patience = 20,
+            early_stopping = EarlyStopping(patience = 1000,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_baseline_opengan_model' + str(trial) + '.pt'))
+                                           path = (representation + '_' + protocol + '_opengan_model' + str(trial) + '.pt'))
             # these next two lines are used to apply multi-class labels
             # to the fakes when training the discriminator
             unmonitored_label = torch.zeros(61)
             unmonitored_label[60] = 1.0
             print('Starting to train now for', representation, protocol)
-            for epoch in range(240):
+            for epoch in range(1000):
                 lossD = 0.0
                 lossG = 0.0
                 train_mon_iter = iter(train_mon_loader)
@@ -176,7 +181,7 @@ for representation in ['dschuster16', 'schuster8']:
                     # balance of the number of real unmonitored instances
                     # while maintaining a ratio of 1:2 real monitored to
                     # real unmonitored + fake monitored
-                    noise = torch.randn(int(lambda_G * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                    noise = torch.randn(int(lambda_g * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                         100, device=device)
                     netG.eval()
                     fake_features = netG(noise).detach()
@@ -186,21 +191,23 @@ for representation in ['dschuster16', 'schuster8']:
                     # train discriminator on real monitored, real unmonitored,
                     # and fake monitored all at once so that batch normalization
                     # statistics are calculated the same way that the baseline
-                    # model calculates them when lambda_G = 0
+                    # model calculates them when lambda_g = 0
                     optimizerD.zero_grad()
                     netD.train()
                     features = torch.cat([x_train_mon_features, x_train_unmon_features, fake_features])
                     y_train = torch.cat([y_train_mon, y_train_unmon, y_fake_60])
-                    output = netD(features, training = True)
-                    loss = criterionD(output, y_train.to(device))
-                    loss.backward()
-                    optimizerD.step()
-                    lossD += loss.item()
+                    # only update the discriminator every few epochs
+                    if epoch % lambda_e == 0:
+                        output = netD(features, training = True)
+                        loss = criterionD(output, y_train.to(device))
+                        loss.backward()
+                        optimizerD.step()
+                        lossD += loss.item()
                     
-                    # every 10 epochs, produce a t-SNE to show the relationship
+                    # every few epochs, produce a t-SNE to show the relationship
                     # between the monitored, unmonitored, and fake instances...
                     # start here by saving the instances from each batch for later
-                    if epoch % 20 == 0 and epoch > 0 and plot_tsne:
+                    if epoch % 50 == 0 and plot_tsne:
                         x_batches.append(features.detach().cpu())
                         # convert convert from one-hot encoding to single labels here too
                         y_batches.append(torch.full((y_train_mon.shape[0],), 0, dtype=torch.float32))
@@ -260,14 +267,16 @@ for representation in ['dschuster16', 'schuster8']:
                         precisions, recalls, thresholds = precision_recall_curve(y_val_binary.cpu(), preds_val_binary.cpu())
                         pr_auc = auc(recalls, precisions)
 
-                # every 10 epochs, produce a t-SNE to show the relationship
-                # between the monitored, unmonitored, and fake instances
-                if epoch % 20 == 0 and epoch > 0 and plot_tsne:
+                # every few epochs, produce a t-SNE to show the relationship
+                # between the monitored, unmonitored, and fake instances...
+                # we only produce a plot from the epoch before the discriminator
+                # updates again, when it is most often fooled by the generator
+                if epoch % 50 == 0 and plot_tsne:
                     print('tsne: concatenating batches')
                     x_batches_np = torch.cat(x_batches).numpy()
                     y_batches_np = torch.cat(y_batches).numpy()
                     print('tsne: reducing dimensionality')
-                    tsne = TSNE(n_components=2, random_state=42, perplexity=30, learning_rate=200)
+                    tsne = TSNE(n_components=2, random_state=42, perplexity=50, learning_rate=200)
                     tsne_results = tsne.fit_transform(x_batches_np)
                     plt.figure(figsize=(16, 12))
                     unique_labels = numpy.unique(y_batches_np)  # Should be [0, 1, 2]

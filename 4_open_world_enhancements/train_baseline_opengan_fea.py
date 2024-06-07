@@ -1,4 +1,4 @@
-# This takes arguments for the protocol and lambda_G. It loads
+# This takes arguments for the protocol and lambda_g. It loads
 # pre-trained baseline models to use as feature extractors
 # and trains a discriminator on real monitored and
 # unmonitored class features, plus fake monitored features
@@ -22,7 +22,7 @@ protocol = sys.argv[1]
 # 0.50 = equal weight for real unmonitored and fake monitored
 # 0.75 = overweight fake monitored instances
 # 1.00 = only fake monitored, for when training data is monitored-only
-lambda_G = float(sys.argv[2])
+lambda_g = float(sys.argv[2])
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
@@ -85,10 +85,10 @@ for representation in ['dschuster16', 'schuster8']:
                                                        batch_size = int(0.33 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # further adjust the number of real unmonitored instances
-            # by 1 - lambda_G
+            # by 1 - lambda_g
             try:
                 train_unmon_loader = torch.utils.data.DataLoader(train_unmon_dataset,
-                                                       batch_size = int((1 - lambda_G) * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                                                       batch_size = int((1 - lambda_g) * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # this is a workaround for the fact that the batch size can't be 0,
             # but we want to effectively put a weight of 0 on real unmonitored
@@ -109,6 +109,7 @@ for representation in ['dschuster16', 'schuster8']:
         #for lambda_fm in [5, 4.5, 4, 3.5, 3, 2.5]:
         #    print('...lambda_fm =', lambda_fm)
         for trial in range(1):
+            print('...lambda_g = ', lambda_g)
             # load the pre-trained model that does feature extraction
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                                 61,
@@ -155,7 +156,7 @@ for representation in ['dschuster16', 'schuster8']:
                     # balance of the number of real unmonitored instances
                     # while maintaining a ratio of 1:2 real monitored to
                     # real unmonitored + fake monitored
-                    noise = torch.randn(int(lambda_G * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                    noise = torch.randn(int(lambda_g * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                         100, 1, 1, device=device)
                     fake_features = netG(noise).detach()
                     # label all fakes as unmonitored

@@ -141,9 +141,13 @@ for representation in ['dschuster16', 'schuster8']:
             print(e)
             continue
         
+        #trial = 0
         lambda_fm = 1e-2
+        lambda_e = 1
         #for lambda_fm in [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]:
         #    print('...lambda_fm =', lambda_fm)
+        #for lambda_e in [1, 2, 3, 4, 5]:
+        #    print('...lambda_e =', lambda_e)
         for trial in range(1):
             # we train a baseline model from scratch, so we're not loading the weights
             # like we did in the other OpenGAN implementations
@@ -163,7 +167,7 @@ for representation in ['dschuster16', 'schuster8']:
             criterionG = torch.nn.BCEWithLogitsLoss()
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_baseline_opengan_model' + str(trial) + '.pt'))
+                                           path = (representation + '_' + protocol + '_opengan_model' + str(trial) + '.pt'))
             # these next two lines are used to apply multi-class labels
             # to the fakes when training the discriminator
             unmonitored_label = torch.zeros(61)
@@ -211,16 +215,18 @@ for representation in ['dschuster16', 'schuster8']:
                     model.train()
                     x_train = torch.cat([x_train_mon.to(device), x_train_unmon.to(device), fakes])
                     y_train = torch.cat([y_train_mon, y_train_unmon, y_fake_60])
-                    output = model(x_train, training = True)
-                    loss = criterionD(output, y_train.to(device))
-                    loss.backward()
-                    optimizerD.step()
-                    lossD += loss.item()
+                    # only update the discriminator every few epochs
+                    if epoch % lambda_e == 0:
+                        output = model(x_train, training = True)
+                        loss = criterionD(output, y_train.to(device))
+                        loss.backward()
+                        optimizerD.step()
+                        lossD += loss.item()
                     
-                    # every 10 epochs, produce a t-SNE to show the relationship
+                    # every few epochs, produce a t-SNE to show the relationship
                     # between the monitored, unmonitored, and fake instances...
                     # start here by saving the instances from each batch for later
-                    if epoch % 20 == 0 and epoch > 0 and plot_tsne:
+                    if (epoch == 0 or epoch == 950) and plot_tsne:
                         x_batches.append(x_train.detach().cpu())
                         # convert convert from one-hot encoding to single labels here too
                         y_batches.append(torch.full((y_train_mon.shape[0],), 0, dtype=torch.float32))
@@ -280,9 +286,9 @@ for representation in ['dschuster16', 'schuster8']:
                         precisions, recalls, thresholds = precision_recall_curve(y_val_binary.cpu(), preds_val_binary.cpu())
                         pr_auc = auc(recalls, precisions)
 
-                # every 10 epochs, produce a t-SNE to show the relationship
+                # every few epochs, produce a t-SNE to show the relationship
                 # between the monitored, unmonitored, and fake instances
-                if epoch % 20 == 0 and epoch > 0 and plot_tsne:
+                if (epoch == 0 or epoch == 950) and plot_tsne:
                     print('tsne: concatenating batches')
                     x_batches_np = torch.cat(x_batches).numpy()
                     # the https representation has two channels per time step so
@@ -290,7 +296,7 @@ for representation in ['dschuster16', 'schuster8']:
                     x_batches_np_flattened = x_batches_np.reshape(x_batches_np.shape[0], -1)
                     y_batches_np = torch.cat(y_batches).numpy()
                     print('tsne: reducing dimensionality')
-                    tsne = TSNE(n_components=2, random_state=42, perplexity=30, learning_rate=200)
+                    tsne = TSNE(n_components=2, random_state=42, perplexity=50, learning_rate=200)
                     tsne_results = tsne.fit_transform(x_batches_np_flattened)
                     plt.figure(figsize=(16, 12))
                     unique_labels = numpy.unique(y_batches_np)  # Should be [0, 1, 2]
