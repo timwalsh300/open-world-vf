@@ -59,8 +59,8 @@ class EarlyStopping:
             self.counter = 0
     def save_checkpoint(self, val_loss, model):
         if self.verbose:
-            self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-            #self.trace_func(f'Validation PR-AUC increased ({self.val_loss_min:.6f} --> {val_loss:.6f})...')
+            #self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+            self.trace_func(f'Validation PR-AUC increased ({self.val_loss_min:.6f} --> {val_loss:.6f})...')
         #torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
 
@@ -167,8 +167,14 @@ for representation in ['dschuster16', 'schuster8']:
                     optimizerD.zero_grad()
                     netD.train()
                     netG.eval()
-                    features = torch.cat([x_train_mon_features, x_train_unmon_features, fake_features])
-                    y_train = torch.cat([y_train_mon, y_train_unmon, y_fake_zeros])
+                    if lambda_g < 1.0:
+                        features = torch.cat([x_train_mon_features, x_train_unmon_features, fake_features])
+                        y_train = torch.cat([y_train_mon, y_train_unmon, y_fake_zeros])
+                    # don't include that one instance from the train_unmon_loader
+                    # that we drew as a workaround to prevent an error
+                    else:
+                        features = torch.cat([x_train_mon_features, fake_features])
+                        y_train = torch.cat([y_train_mon, y_fake_zeros])
                     output = netD(features).squeeze()
                     loss = criterionD(output, y_train.to(device))
                     loss.backward()
@@ -218,7 +224,7 @@ for representation in ['dschuster16', 'schuster8']:
                 # check if this is a new low validation loss and, if so, save the discriminator
                 #
                 # otherwise increment the counter towards the patience limit
-                early_stopping(val_loss, netD)
+                early_stopping(-pr_auc, netD)
                 if early_stopping.early_stop:
                     # we've reached the patience limit
                     print('Early stopping')

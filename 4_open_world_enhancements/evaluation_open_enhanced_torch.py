@@ -98,9 +98,8 @@ def get_scores(test_loader, protocol, representation, approach, trial):
 
     # this is just a 60-way classification model relying only on MSP
     # or Softmax Thresholding for OSR, with no unmonitored training data
-    # or output class
-    if (approach == 'baseline_monitored' or
-        approach == 'baseline_mixup_monitored'):
+    # or output class, using a deterministic model
+    if (approach == 'baseline_monitored'):
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             60,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
@@ -135,7 +134,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
         model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model' + str(trial) + '.pt'))
-        preds, scores = get_bayesian_msp(test_loader, model)
+        preds, scores = get_bayesian_msp(test_loader, model, 61)
         #print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
 
@@ -158,37 +157,51 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach[:-10] + '_model' + str(trial) + '.pt'))
         return get_epistemic_uncertainty(test_loader, model)
 
+    # this is just a 60-way classification model relying only on MSP
+    # or Softmax Thresholding for OSR, with no unmonitored training data
+    # or output class, using a trained Spike and Slab Dropout model with
+    # Concrete Dropout and mixup data augmentation
+    if (approach == 'sscd_mixup_monitored'):
+        model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
+                                            60,
+                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model' + str(trial) + '.pt'))
+        preds, scores = get_bayesian_msp(test_loader, model, 60)
+        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        return preds, scores
+
     # this loads a trained baseline model and OpenGAN discriminator and returns
-    # the baseline model predictions and scores from the discriminator, so the
-    # predictions will be identical (and not interesting) but the binary monitored vs.
-    # unmonitored scores could be very different compared to the baseline
-    elif (approach == 'baseline_opengan'):
+    # the predictions and scores from the discriminator
+    elif (approach == 'opengan'):
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
         model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
         model.to(device)
         model.eval()
-        discriminator = mymodels_torch.Discriminator()
-        discriminator.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_opengan_model' + str(trial) + '.pt'))
+        discriminator = mymodels_torch.DiscriminatorDFNet_fea(INPUT_SHAPES[representation],
+                                                              61,
+                                                              BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+        discriminator.load_state_dict(torch.load(representation + '_' + protocol + '_opengan_model' + str(trial) + '.pt'))
         discriminator.to(device)
         discriminator.eval()
         logits_batches = []
-        scores_batches = []
         for x_test, y_test in test_loader:
             with torch.no_grad():
-                logits_batches.append(model(x_test.to(device), training = False).to('cpu'))
-                scores_batches.append(discriminator(model.extract_features(x_test.to(device), training = False)).squeeze().to('cpu'))
+                features = model.extract_features_flattened(x_test.to(device))
+                logits_batches.append(discriminator(features, training = False).to('cpu'))
         logits_concatenated = torch.cat(logits_batches, dim = 0)
         preds = torch.softmax(logits_concatenated, dim=1).detach().numpy()
-        scores_concatenated = torch.cat(scores_batches, dim = 0).numpy()
-        return preds, scores_concatenated
+        scores = []
+        for i in range(len(preds)):
+            scores.append(max(preds[i][:60]))
+        return preds, scores
 
-def get_bayesian_msp(test_loader, model):
+def get_bayesian_msp(test_loader, model, classes):
         model.to(device)
         model.eval()
         mc_samples = 10
-        preds = numpy.zeros([mc_samples, len(test_loader.dataset), 61])
+        preds = numpy.zeros([mc_samples, len(test_loader.dataset), classes])
         for i in range(mc_samples):
             logits_batches = []
             for x_test, y_test in test_loader:
@@ -274,11 +287,14 @@ for protocol in ['https', 'tor']:
         except Exception as e:
             continue
 
-        with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
-            pr_curve_data = pickle.load(handle)
-        # I'll add more approaches to this list as I build them
-        for approach in ['baseline',               'baseline_mixup',                     'baseline_nota',                  , 'baseline_opengan',
-                         'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_mixup_epistemic', 'sscd_nota', 'sscd_nota_epistemic']:
+        #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
+        #    pr_curve_data = pickle.load(handle)
+        # These approaches are the top competitors with the baseline
+        #for approach in ['baseline', 'baseline_mixup', 'baseline_nota', 'cssr',
+        #                 'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_mixup_epistemic', 'sscd_nota', 'sscd_nota_epistemic']:
+        # These approaches are the competitors with monitored-only deterministic MSP
+        #for approach in ['baseline_monitored', 'sscd_mixup_monitored', 'opengan']:
+        for approach in ['baseline_monitored', 'opengan']:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
@@ -372,21 +388,26 @@ for protocol in ['https', 'tor']:
         # save this for future runs, so we don't have to do
         # ten trials for every approach every time we add
         # a new approach
-        with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
-            pickle.dump(pr_curve_data, handle)
+        #with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
+        #    pickle.dump(pr_curve_data, handle)
 
-        # create and save the P-R curve figure
-        #          std model  epistemic  mixup                 nota                  opengan
-        colors = ['#000000',            '#ff0000',            '#0066ff',            '#00cc00',
-                  '#000000', '#000000', '#ff0000', '#ff0000', '#0066ff', '#0066ff']
-        line_styles = ['-',             '-',                  '-',                  '-',
-                       '-.', ':',       '-.', ':',            '-.', ':']
-        num_styles = len(line_styles)
+        # create and save the P-R curve figure for top competitors with the baseline
+        # determ  msp-std               msp-std-mix              msp-std-nota               cssr
+        # bayes   msp-std    epi-std    msp-std-mix  epi-std-mix msp-std-nota  epi-std-nota            
+        #colors = ['#000000',            '#ff0000',               '#00cc00'                  '#0066ff',
+        #          '#000000', '#000000', '#ff0000',   '#ff0000',  '#00cc00',    '#00cc00']
+        #lines =  ['-',                  '-',                     '-',                       '-',
+        #          '-.',      ':',       '-.',        ':',        '-.',         ':']
+        # create and save the P-R curve figure for competitors with monitored-only MSP
+        # determ  msp-mon    mixup-mon   opengan-mon cssr        
+        colors = ['#000000', '#ff0000',  '#ff9933']
+        lines =  ['-',       '-',        '-']
+        num_styles = len(lines)
         num_colors = len(colors)
         plt.figure(figsize=(16, 12))
         for i, (label, mean_precisions) in enumerate(pr_curve_data.items()):
             color = colors[i % num_colors]
-            line_style = line_styles[i % num_styles]
+            line_style = lines[i % num_styles]
             plt.plot(common_recall_levels, mean_precisions, label=label, color=color, linestyle=line_style)
         plt.xlabel('Recall', fontsize = 32)
         plt.ylabel('Precision', fontsize = 32)
@@ -397,6 +418,6 @@ for protocol in ['https', 'tor']:
         plt.xlim(0.5, 1)
         plt.ylim(0.5, 1)
         plt.grid(True)
-        plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
+        plt.savefig('enhanced_pr_curve_' + protocol + '_monitored.png', dpi=300)
         pr_curve_data = {}
         print('-------------------------\n')

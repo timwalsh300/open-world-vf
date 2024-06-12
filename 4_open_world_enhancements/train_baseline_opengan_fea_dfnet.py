@@ -70,8 +70,8 @@ class EarlyStopping:
             self.counter = 0
     def save_checkpoint(self, val_loss, model):
         if self.verbose:
-            self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-            #self.trace_func(f'Validation PR-AUC increased ({self.val_loss_min:.6f} --> {val_loss:.6f})...')
+            #self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+            self.trace_func(f'Validation PR-AUC increased ({self.val_loss_min:.6f} --> {val_loss:.6f})...')
         torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
 
@@ -124,7 +124,8 @@ for representation in ['dschuster16', 'schuster8']:
         #for lambda_e in [1, 2, 3, 4, 5]:
         #    print('...lambda_e =', lambda_e)
         for trial in range(10):
-            print('...lambda_g =', lambda_g)
+            #print('...lambda_g =', lambda_g)
+            print('...trial', trial)
             # load the pre-trained model that does feature extraction
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                                 61,
@@ -148,7 +149,7 @@ for representation in ['dschuster16', 'schuster8']:
             netG.to(device)
             optimizerG = torch.optim.Adam(netG.parameters(), lr=0.0001)
             criterionG = torch.nn.BCEWithLogitsLoss()
-            early_stopping = EarlyStopping(patience = 1000,
+            early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
                                            path = (representation + '_' + protocol + '_opengan_model' + str(trial) + '.pt'))
             # these next two lines are used to apply multi-class labels
@@ -156,7 +157,7 @@ for representation in ['dschuster16', 'schuster8']:
             unmonitored_label = torch.zeros(61)
             unmonitored_label[60] = 1.0
             print('Starting to train now for', representation, protocol)
-            for epoch in range(1000):
+            for epoch in range(240):
                 lossD = 0.0
                 lossG = 0.0
                 train_mon_iter = iter(train_mon_loader)
@@ -194,8 +195,14 @@ for representation in ['dschuster16', 'schuster8']:
                     # model calculates them when lambda_g = 0
                     optimizerD.zero_grad()
                     netD.train()
-                    features = torch.cat([x_train_mon_features, x_train_unmon_features, fake_features])
-                    y_train = torch.cat([y_train_mon, y_train_unmon, y_fake_60])
+                    if lambda_g < 1.0:
+                        features = torch.cat([x_train_mon_features, x_train_unmon_features, fake_features])
+                        y_train = torch.cat([y_train_mon, y_train_unmon, y_fake_60])
+                    # don't include that one instance from the train_unmon_loader
+                    # that we drew as a workaround to prevent an error
+                    else:
+                        features = torch.cat([x_train_mon_features, fake_features])
+                        y_train = torch.cat([y_train_mon, y_fake_60])
                     # only update the discriminator every few epochs
                     if epoch % lambda_e == 0:
                         output = netD(features, training = True)
@@ -296,7 +303,7 @@ for representation in ['dschuster16', 'schuster8']:
                 # check if this is a new low validation loss and, if so, save the discriminator
                 #
                 # otherwise increment the counter towards the patience limit
-                early_stopping(val_loss, netD)
+                early_stopping(-pr_auc, netD)
                 if early_stopping.early_stop:
                     # we've reached the patience limit
                     print('Early stopping')

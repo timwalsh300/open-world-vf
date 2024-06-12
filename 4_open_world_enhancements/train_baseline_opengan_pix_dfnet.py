@@ -1,4 +1,4 @@
-# This takes arguments for the protocol and lambda_G. It trains
+# This takes arguments for the protocol and lambda_g. It trains
 # the baseline model from scratch as a discriminator on real monitored
 # and unmonitored instances, plus fake monitored instances
 # from a generator that is being trained adversarially
@@ -18,14 +18,14 @@ import matplotlib.pyplot as plt
 
 protocol = sys.argv[1]
 
-plot_tsne = True
+plot_tsne = False
 
 # 0.00 = only real unmonitored instances, same as baseline
 # 0.25 = overweight real unmonitored instances
 # 0.50 = equal weight for real unmonitored and fake monitored
 # 0.75 = overweight fake monitored instances
 # 1.00 = only fake monitored, for when training data is monitored-only
-lambda_G = float(sys.argv[2])
+lambda_g = float(sys.argv[2])
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
@@ -94,8 +94,8 @@ class EarlyStopping:
             self.counter = 0
     def save_checkpoint(self, val_loss, model):
         if self.verbose:
-            self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-            #self.trace_func(f'Validation PR-AUC increased ({self.val_loss_min:.6f} --> {val_loss:.6f})...')
+            #self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+            self.trace_func(f'Validation PR-AUC increased ({self.val_loss_min:.6f} --> {val_loss:.6f})...')
         #torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
 
@@ -120,10 +120,10 @@ for representation in ['dschuster16', 'schuster8']:
                                                        batch_size = int(0.33 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # further adjust the number of real unmonitored instances
-            # by 1 - lambda_G
+            # by 1 - lambda_g
             try:
                 train_unmon_loader = torch.utils.data.DataLoader(train_unmon_dataset,
-                                                       batch_size = int((1 - lambda_G) * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                                                       batch_size = int((1 - lambda_g) * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # this is a workaround for the fact that the batch size can't be 0,
             # but we want to effectively put a weight of 0 on real unmonitored
@@ -149,6 +149,7 @@ for representation in ['dschuster16', 'schuster8']:
         #for lambda_e in [1, 2, 3, 4, 5]:
         #    print('...lambda_e =', lambda_e)
         for trial in range(1):
+            print('...lambda_g =', lambda_g)
             # we train a baseline model from scratch, so we're not loading the weights
             # like we did in the other OpenGAN implementations
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
@@ -200,7 +201,7 @@ for representation in ['dschuster16', 'schuster8']:
                     # balance of the number of real unmonitored instances
                     # while maintaining a ratio of 1:2 real monitored to
                     # real unmonitored + fake monitored
-                    noise = torch.randn(int(lambda_G * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                    noise = torch.randn(int(lambda_g * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                         100, device=device)
                     netG.eval()
                     fakes = netG(noise, training = False).detach()
@@ -210,11 +211,17 @@ for representation in ['dschuster16', 'schuster8']:
                     # train discriminator on real monitored, real unmonitored,
                     # and fake monitored all at once so that batch normalization
                     # statistics are calculated the same way that the baseline
-                    # model calculates them when lambda_G = 0
+                    # model calculates them when lambda_g = 0
                     optimizerD.zero_grad()
                     model.train()
-                    x_train = torch.cat([x_train_mon.to(device), x_train_unmon.to(device), fakes])
-                    y_train = torch.cat([y_train_mon, y_train_unmon, y_fake_60])
+                    if lambda_g < 1.0:
+                        x_train = torch.cat([x_train_mon.to(device), x_train_unmon.to(device), fakes])
+                        y_train = torch.cat([y_train_mon, y_train_unmon, y_fake_60])
+                    # don't include that one instance from the train_unmon_loader
+                    # that we drew as a workaround to prevent an error
+                    else:
+                        x_train = torch.cat([x_train_mon.to(device), fakes])
+                        y_train = torch.cat([y_train_mon, y_fake_60])
                     # only update the discriminator every few epochs
                     if epoch % lambda_e == 0:
                         output = model(x_train, training = True)
@@ -317,7 +324,7 @@ for representation in ['dschuster16', 'schuster8']:
                 # check if this is a new low validation loss and, if so, save the discriminator
                 #
                 # otherwise increment the counter towards the patience limit
-                early_stopping(val_loss, model)
+                early_stopping(-pr_auc, model)
                 if early_stopping.early_stop:
                     # we've reached the patience limit
                     print('Early stopping')
