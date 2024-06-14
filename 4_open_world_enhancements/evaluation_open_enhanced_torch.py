@@ -290,11 +290,10 @@ for protocol in ['https', 'tor']:
         #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
         #    pr_curve_data = pickle.load(handle)
         # These approaches are the top competitors with the baseline
-        #for approach in ['baseline', 'baseline_mixup', 'baseline_nota', 'cssr',
-        #                 'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_mixup_epistemic', 'sscd_nota', 'sscd_nota_epistemic']:
+        for approach in ['baseline', 'baseline_mixup', 'baseline_nota', 'opengan',
+                         'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_mixup_epistemic', 'sscd_nota', 'sscd_nota_epistemic']:
         # These approaches are the competitors with monitored-only deterministic MSP
-        #for approach in ['baseline_monitored', 'sscd_mixup_monitored', 'opengan']:
-        for approach in ['baseline_monitored', 'opengan']:
+        #for approach in ['baseline_monitored', 'opengan']:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
@@ -388,20 +387,20 @@ for protocol in ['https', 'tor']:
         # save this for future runs, so we don't have to do
         # ten trials for every approach every time we add
         # a new approach
-        #with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
-        #    pickle.dump(pr_curve_data, handle)
+        with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
+            pickle.dump(pr_curve_data, handle)
 
         # create and save the P-R curve figure for top competitors with the baseline
-        # determ  msp-std               msp-std-mix              msp-std-nota               cssr
+        # determ  msp-std               msp-std-mix              msp-std-nota               opengan
         # bayes   msp-std    epi-std    msp-std-mix  epi-std-mix msp-std-nota  epi-std-nota            
-        #colors = ['#000000',            '#ff0000',               '#00cc00'                  '#0066ff',
-        #          '#000000', '#000000', '#ff0000',   '#ff0000',  '#00cc00',    '#00cc00']
-        #lines =  ['-',                  '-',                     '-',                       '-',
-        #          '-.',      ':',       '-.',        ':',        '-.',         ':']
+        colors = ['#000000',            '#ff0000',               '#00cc00',                 '#ff9933',
+                  '#000000', '#000000', '#ff0000',   '#ff0000',  '#00cc00',    '#00cc00']
+        lines =  ['-',                  '-',                     '-',                       '-',
+                  '-.',      ':',       '-.',        ':',        '-.',         ':']
         # create and save the P-R curve figure for competitors with monitored-only MSP
-        # determ  msp-mon    mixup-mon   opengan-mon cssr        
-        colors = ['#000000', '#ff0000',  '#ff9933']
-        lines =  ['-',       '-',        '-']
+        # determ  msp-mon    opengan-mon        
+        #colors = ['#000000', '#ff9933']
+        #lines =  ['-',       '-']
         num_styles = len(lines)
         num_colors = len(colors)
         plt.figure(figsize=(16, 12))
@@ -418,6 +417,7 @@ for protocol in ['https', 'tor']:
         plt.xlim(0.5, 1)
         plt.ylim(0.5, 1)
         plt.grid(True)
-        plt.savefig('enhanced_pr_curve_' + protocol + '_monitored.png', dpi=300)
+        plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
+        #plt.savefig('enhanced_pr_curve_' + protocol + '_monitored.png', dpi=300)
         pr_curve_data = {}
         print('-------------------------\n')
