@@ -783,6 +783,65 @@ class GeneratorGANDaLF(nn.Module):
         x = self.final_tanh(x)
         return x
 
+class AutoEncoder(nn.Module):
+    def __init__(self, in_channels, hidden_layers, latent_channels):
+        super(AutoEncoder, self).__init__()
+        self.encode_layers = nn.ModuleList()
+        self.decode_layers = nn.ModuleList()
+
+        # Encoder layers
+        current_channels = in_channels
+        for hidden_channels in hidden_layers:
+            self.encode_layers.append(nn.Conv1d(current_channels, hidden_channels, kernel_size=3, padding=1))
+            self.encode_layers.append(nn.Tanh())
+            current_channels = hidden_channels
+
+        self.latent_layer = nn.Conv1d(current_channels, latent_channels, kernel_size=3, padding=1)
+
+        # Decoder layers
+        self.decode_layers.append(nn.Conv1d(latent_channels, current_channels, kernel_size=3, padding=1))
+        self.decode_layers.append(nn.Tanh())
+
+        for hidden_channels in reversed(hidden_layers):
+            self.decode_layers.append(nn.Conv1d(current_channels, hidden_channels, kernel_size=3, padding=1))
+            self.decode_layers.append(nn.Tanh())
+            current_channels = hidden_channels
+
+        self.output_layer = nn.Conv1d(current_channels, in_channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        for layer in self.encode_layers:
+            x = layer(x)
+        latent = self.latent_layer(x)
+        x = latent
+        for layer in self.decode_layers:
+            x = layer(x)
+        x = self.output_layer(x)
+        return x
+
+class CSSRClassifier(nn.Module):
+    def __init__(self, in_channels, num_classes, hidden_layers, latent_channels, gamma=1.0):
+        super(CSSRClassifier, self).__init__()
+        self.class_aes = nn.ModuleList([AutoEncoder(in_channels, hidden_layers, latent_channels) for _ in range(num_classes)])
+        self.num_classes = num_classes
+        self.gamma = gamma
+
+    def ae_error(self, rc, x):
+        return torch.norm(rc - x, p=1, dim=1, keepdim=True) * self.gamma
+
+    def forward(self, x):
+        cls_ers = []
+        for ae in self.class_aes:
+            reconstructed = ae(x)
+            error = self.ae_error(reconstructed, x)
+            cls_ers.append(error)
+
+        cls_ers = torch.cat(cls_ers, dim=1)
+        logits = -cls_ers * self.gamma
+        probs = F.softmax(logits, dim=1)
+        pooled_probs = F.adaptive_avg_pool1d(probs, 1).view(x.size(0), self.num_classes)
+        return pooled_probs
+
 # this is just a sanity check for the baseline model
 if __name__ == '__main__':
     CLASSES = 61
