@@ -139,50 +139,38 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         return preds, scores
 
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
-    # using epistemic uncertainty to rank predictions when they are for any monitored class
+    # using total uncertainty to rank predictions
     #
-    # the intuition is that the epistemic uncertainty should be higher when we have
-    # a false positive than when we have a true positive
-    #
-    # ranking both monitored and unmonitored predictions by epistemic uncertainty is
-    # problematic because uncertainty will be low on both ends, so low epistemic
-    # uncertainty doesn't mean that an instance is obviously monitored; it could be
-    # obviously unmonitored too, so we only rank monitored predictions
-    elif (approach == 'sscd_epistemic' or
-         approach == 'sscd_mixup_epistemic' or
-         approach == 'sscd_nota_epistemic'):
+    # total uncertainty should correlate with MSP... a high MSP would be low entropy, thus
+    # low total uncertainty, and vice versa... it includes epistemic uncertainty as one
+    # component which we hypothesized would be higher for instances of unmonitored classes
+    # due to a lack of training data, i.e. they are unknown at training time 
+    elif (approach == 'sscd_uncertainty' or
+         approach == 'sscd_mixup_uncertainty' or
+         approach == 'sscd_nota_uncertainty'):
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach[:-10] + '_model' + str(trial) + '.pt'))
-        return get_epistemic_uncertainty(test_loader, model)
-
-    # this is just a 60-way classification model relying only on MSP
-    # or Softmax Thresholding for OSR, with no unmonitored training data
-    # or output class, using a trained Spike and Slab Dropout model with
-    # Concrete Dropout and mixup data augmentation
-    if (approach == 'sscd_mixup_monitored'):
-        model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
-                                            60,
-                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model' + str(trial) + '.pt'))
-        preds, scores = get_bayesian_msp(test_loader, model, 60)
-        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
-        return preds, scores
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach[:-12] + '_model' + str(trial) + '.pt'))
+        return get_uncertainty(test_loader, model)
 
     # this loads a trained baseline model and OpenGAN discriminator and returns
     # the predictions and scores from the discriminator
-    elif (approach == 'opengan'):
+    elif (approach == 'opengan' or
+          approach == 'opengan_mixup'):
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
+        if approach == 'opengan':
+            model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
+        elif approach == 'opengan_mixup':
+            model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_mixup_model' + str(trial) + '.pt'))
         model.to(device)
         model.eval()
         discriminator = mymodels_torch.DiscriminatorDFNet_fea(INPUT_SHAPES[representation],
                                                               61,
                                                               BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        discriminator.load_state_dict(torch.load(representation + '_' + protocol + '_opengan_model' + str(trial) + '.pt'))
+        discriminator.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model' + str(trial) + '.pt'))
         discriminator.to(device)
         discriminator.eval()
         logits_batches = []
@@ -215,12 +203,11 @@ def get_bayesian_msp(test_loader, model, classes):
             scores.append(max(preds_avg[i][:60]))
         return preds_avg, scores
 
-def get_epistemic_uncertainty(test_loader, model):
+def get_uncertainty(test_loader, model):
         model.to(device)
         model.eval()
         mc_samples = 10
         preds = numpy.zeros([mc_samples, len(test_loader.dataset), 61])
-        entropies = numpy.zeros([mc_samples, len(test_loader.dataset)])
         for i in range(mc_samples):
             logits_batches = []
             for x_test, y_test in test_loader:
@@ -228,27 +215,27 @@ def get_epistemic_uncertainty(test_loader, model):
                     logits_batches.append(model(x_test.to(device), training = True).to('cpu'))
             logits_concatenated = torch.cat(logits_batches, dim = 0)
             preds[i] = torch.softmax(logits_concatenated, dim=1).detach().numpy()
-            entropies[i] = -1 * numpy.sum(preds[i] * numpy.log(preds[i] + 1e-9), axis = 1)
         preds_avg = preds.mean(axis = 0)
-        # compute the total uncertainty for each test instance
-        total_uncertainties = -1 * numpy.sum(preds_avg * numpy.log(preds_avg + 1e-9), axis = 1)
-        # compute aleatoric uncertainty for each test instance
-        aleatoric_uncertainties = numpy.mean(entropies, axis = 0)
-        # compute the epistemic uncertainty for each test instance
-        epistemic_uncertainties = total_uncertainties - aleatoric_uncertainties
-        # we negate the epistemic uncertainties because precision_recall_curve() expects
-        # a higher score to be associated with a higher confidence prediction for the
-        # positive class, but a high epistemic uncertainty is a low confidence prediction
-        scores = [-eu for eu in epistemic_uncertainties]
-        # now the min of scores is the highest uncertainty
-        highest_eu = min(scores)
-        for i in range(len(test_loader.dataset)):
-            # if the prediction was unmonitored, we rank it as low as possible without
-            # even considering the uncertainty
-            if numpy.argmax(preds_avg[i]) == 60:
-                scores[i] = highest_eu
-        #print('... lowest epistemic uncertainty for a positive prediction', max(scores), numpy.argmax(scores))
-        #print('... highest epistemic uncertainty for a positive prediction', min(scores), numpy.argmin(scores))
+        scores = []
+        for i in range(len(preds_avg)):
+            # compute the total uncertainty for each test instance as the entropy
+            # of the predicted probabilities for only the monitored classes 0-59
+            #
+            # we distribute the predicted probability mass for the unmonitored
+            # class across the monitored classes to ensure that a highly confident
+            # prediction of unmonitored doesn't yield near-zero entropy
+            # across the monitored classes, which would be indistinguishable
+            # from a highly confident prediction for a monitored class
+            unmon_prob = preds_avg[i][60]
+            distributed_prob = unmon_prob / 60
+            adjusted_probs = preds_avg[i][:60] + distributed_prob
+            adjusted_probs = numpy.where(adjusted_probs == 0, 1e-9, adjusted_probs)
+            # we negate the entropy because precision_recall_curve() expects
+            # a higher score to be associated with a higher confidence prediction
+            # for the positive class, but a high uncertainty is a low confidence
+            # prediction...
+            negative_entropy = numpy.sum(adjusted_probs * numpy.log(adjusted_probs))
+            scores.append(negative_entropy)
         return preds_avg, scores
 
 print(torch.cuda.is_available())
@@ -290,8 +277,8 @@ for protocol in ['https', 'tor']:
         #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
         #    pr_curve_data = pickle.load(handle)
         # These approaches are the top competitors with the baseline
-        for approach in ['baseline', 'baseline_mixup', 'baseline_nota', 'opengan',
-                         'sscd', 'sscd_epistemic', 'sscd_mixup', 'sscd_mixup_epistemic', 'sscd_nota', 'sscd_nota_epistemic']:
+        for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
+                         'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
         # These approaches are the competitors with monitored-only deterministic MSP
         #for approach in ['baseline_monitored', 'opengan']:
             trial_scores = []
@@ -390,17 +377,18 @@ for protocol in ['https', 'tor']:
         with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
             pickle.dump(pr_curve_data, handle)
 
-        # create and save the P-R curve figure for top competitors with the baseline
-        # determ  msp-std               msp-std-mix              msp-std-nota               opengan
-        # bayes   msp-std    epi-std    msp-std-mix  epi-std-mix msp-std-nota  epi-std-nota            
-        colors = ['#000000',            '#ff0000',               '#00cc00',                 '#ff9933',
-                  '#000000', '#000000', '#ff0000',   '#ff0000',  '#00cc00',    '#00cc00']
-        lines =  ['-',                  '-',                     '-',                       '-',
-                  '-.',      ':',       '-.',        ':',        '-.',         ':']
-        # create and save the P-R curve figure for competitors with monitored-only MSP
-        # determ  msp-mon    opengan-mon        
-        #colors = ['#000000', '#ff9933']
-        #lines =  ['-',       '-']
+        # create and save the P-R curve figure for top competitors with the baseline...
+        # colors correspond to decision functions 1, 3, 4, 5 and lines correspond to data AB, ABC(E)
+        #         baseline              baseline_mixup             opengan    opengan_mixup
+        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc             
+        colors = ['#000000',            '#000000',                 '#ff0000', '#ff0000',
+                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00']
+        lines =  ['-',                  ':',                       '-',       ':',
+                  '-',       '-',       ':',        ':']
+        # create and save the P-R curve figure for monitored-only
+        #          baseline_mon opengan_mon
+        #colors = ['#000000',   '#ff0000']
+        #lines =  ['-',         '-']
         num_styles = len(lines)
         num_colors = len(colors)
         plt.figure(figsize=(16, 12))
