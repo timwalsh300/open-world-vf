@@ -91,21 +91,31 @@ for representation in ['dschuster16', 'schuster8']:
                 training_loss = 0.0
                 for x_train, y_train in train_loader:
                     optimizer.zero_grad()
-                    outputs = model(x_train.to(device), training = True)
-                    loss = criterion(outputs, y_train.to(device))
+                    output = model(x_train.to(device), training = True)
+                    loss = criterion(output, y_train.to(device))
                     training_loss += loss.item()
                     loss.backward()
                     optimizer.step()
 
                 val_loss = 0.0
+                correct_predictions = 0
+                total_predictions = 0
                 model.eval()
                 with torch.no_grad():
                     for x_val, y_val in val_loader:
-                        outputs = model(x_val.to(device), training = False)
-                        loss = criterion(outputs, y_val.to(device))
+                        output = model(x_val.to(device), training = False)
+                        y_val_indices = torch.argmax(y_val, dim=1)
+                        loss = criterion(output, y_val.to(device))
                         val_loss += loss.item()
 
-                print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
+                        # Calculate accuracy
+                        predicted_classes = torch.argmax(output, dim=1)
+                        correct_predictions += (predicted_classes == y_val_indices.to(device)).sum().item()
+                        total_predictions += y_val_indices.size(0)
+
+                # Calculate and print accuracy
+                accuracy = correct_predictions / total_predictions
+                print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)} \t Accuracy: {accuracy:.4f}')
                 # check if this is a new low validation loss and, if so, save the model
                 #
                 # otherwise increment the counter towards the patience limit
