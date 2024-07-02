@@ -827,20 +827,23 @@ class CSSRClassifier(nn.Module):
         self.gamma = gamma
 
     def ae_error(self, rc, x):
-        return torch.norm(rc - x, p=1, dim=1, keepdim=True) * self.gamma
+        return torch.norm(rc - x, p=1, dim=1, keepdim=True)
 
     def forward(self, x):
         cls_ers = []
         for ae in self.class_aes:
             reconstructed = ae(x)
-            error = self.ae_error(reconstructed, x)
-            cls_ers.append(error)
+            cls_er = self.ae_error(reconstructed, x)
+            #cls_er = torch.clamp(cls_er, -100, 100)
+            cls_ers.append(cls_er * self.gamma)
 
         cls_ers = torch.cat(cls_ers, dim=1)
-        logits = -cls_ers * self.gamma
-        probs = F.softmax(logits, dim=1)
-        pooled_probs = F.adaptive_avg_pool1d(probs, 1).view(x.size(0), self.num_classes)
-        return pooled_probs
+        logits = -cls_ers
+        #probs = F.softmax(logits, dim=1)
+        #pooled_probs = F.adaptive_avg_pool1d(probs, 1).view(x.size(0), self.num_classes)
+        #return pooled_probs
+        pooled_logits = F.adaptive_avg_pool1d(logits, 1).view(x.size(0), self.num_classes)
+        return pooled_logits
 
 # this is just a sanity check for the baseline model
 if __name__ == '__main__':

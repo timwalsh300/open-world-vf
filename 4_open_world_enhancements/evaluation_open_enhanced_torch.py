@@ -99,7 +99,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # this is just a 60-way classification model relying only on MSP
     # or Softmax Thresholding for OSR, with no unmonitored training data
     # or output class, using a deterministic model
-    if (approach == 'baseline_monitored'):
+    elif (approach == 'baseline_monitored'):
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             60,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
@@ -183,6 +183,59 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         scores = []
         for i in range(len(preds)):
             scores.append(max(preds[i][:60]))
+        return preds, scores
+
+    # this loads a baseline model trained only on the monitored set
+    # to extract feature maps and get N-way classification predictions
+    #
+    # then loads the trained autoencoders for the predicted classes to
+    # encode and decode the feature maps
+    #
+    # the negative class-specific reconstruction errors (normalized by feature
+    # magnitude) are the scores for the binary monitored vs. unmonitored task
+    elif (approach == 'cssr'):
+        backbone = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
+                                               60,
+                                               BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+        backbone.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_monitored_model' + str(trial) + '.pt'))
+        backbone.to(device)
+        backbone.eval()
+        classifier = mymodels_torch.CSSRClassifier(in_channels=256, num_classes=60, hidden_layers=[], latent_channels=64, gamma=0.1)
+        classifier.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_cssr_model' + str(trial) + '.pt'))
+        classifier.to(device)
+        classifier.eval()
+        logits_batches = []
+        scores_batches = []
+        for x_test, y_test in test_loader:
+            with torch.no_grad():
+                x_features = backbone.extract_features(x_test.to(device))
+                logits = backbone(x_test.to(device), training = False)
+                logits_batches.append(logits.to('cpu'))
+                predicted_classes = torch.argmax(logits, dim=1)
+                reconstructed_features = []
+                for i in range(x_features.size(0)):
+                    # select the autoencoder for the predicted class of the i-th instance
+                    autoencoder = classifier.class_aes[predicted_classes[i].item()]
+                    # reshape the feature map of the i-th instance to match the input shape expected by the autoencoder
+                    instance_features = x_features[i:i+1]
+                    rc = autoencoder(instance_features)
+                    reconstructed_features.append(rc)
+                # concatenate the reconstructed features back into a batch
+                reconstructed_features = torch.cat(reconstructed_features, dim=0)
+                reconstruction_errors = torch.norm(reconstructed_features - x_features, p=1, dim=1, keepdim=True)
+                feature_magnitudes = torch.norm(x_features, p=1, dim=1, keepdim=True)
+                normalized_errors = reconstruction_errors / (feature_magnitudes ** 2)
+                # compute the knownness score...
+                # it is the mean across the length of "pixelwise" reconstruction errors
+                #
+                # lower normalized reconstruction error indicates a higher likelihood
+                # of being from a monitored class, so we make the errors negative
+                mean_normalized_errors = normalized_errors.mean(dim=2)
+                scores_batches.append(-mean_normalized_errors.to('cpu'))
+                        
+        logits_concatenated = torch.cat(logits_batches, dim = 0)
+        preds = torch.softmax(logits_concatenated, dim=1).detach().numpy()
+        scores = torch.cat(scores_batches, dim = 0).detach().numpy()
         return preds, scores
 
 def get_bayesian_msp(test_loader, model, classes):
@@ -274,11 +327,12 @@ for protocol in ['https', 'tor']:
         except Exception as e:
             continue
 
-        #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
-        #    pr_curve_data = pickle.load(handle)
+        with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
+            pr_curve_data = pickle.load(handle)
         # These approaches are the top competitors with the baseline
-        for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
-                         'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
+        #for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
+        #                 'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
+        for approach in ['cssr']:
         # These approaches are the competitors with monitored-only deterministic MSP
         #for approach in ['baseline_monitored', 'opengan']:
             trial_scores = []
@@ -374,17 +428,17 @@ for protocol in ['https', 'tor']:
         # save this for future runs, so we don't have to do
         # ten trials for every approach every time we add
         # a new approach
-        with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
-            pickle.dump(pr_curve_data, handle)
+        #with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
+        #    pickle.dump(pr_curve_data, handle)
 
         # create and save the P-R curve figure for top competitors with the baseline...
-        # colors correspond to decision functions 1, 3, 4, 5 and lines correspond to data AB, ABC(E)
+        # colors correspond to decision functions 1, 3, 4, 5, 6 and lines correspond to data A(B), ABC(E)
         #         baseline              baseline_mixup             opengan    opengan_mixup
-        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc             
+        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc cssr            
         colors = ['#000000',            '#000000',                 '#ff0000', '#ff0000',
-                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00']
+                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00',     '#ff9900']
         lines =  ['-',                  ':',                       '-',       ':',
-                  '-',       '-',       ':',        ':']
+                  '-',       '-',       ':',        ':',           '-']
         # create and save the P-R curve figure for monitored-only
         #          baseline_mon opengan_mon
         #colors = ['#000000',   '#ff0000']
@@ -400,10 +454,13 @@ for protocol in ['https', 'tor']:
         plt.ylabel('Precision', fontsize = 32)
         protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
         plt.title('Precision-Recall Curve (' + protocol_string + ' 64k Test Set)', fontsize = 32)
-        plt.legend(loc = 'lower left', fontsize = 20, title = 'Approach', title_fontsize = 20)
+        if protocol == 'https':
+            plt.legend(loc = 'lower left', fontsize = 20, title = 'Approach', title_fontsize = 20)
+        elif protocol == 'tor':
+            plt.legend(loc = 'upper right', fontsize = 20, title = 'Approach', title_fontsize = 20)
         plt.tick_params(axis='both', which='major', labelsize=20)
         plt.xlim(0.5, 1)
-        plt.ylim(0.5, 1)
+        plt.ylim(0.98, 1)
         plt.grid(True)
         plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
         #plt.savefig('enhanced_pr_curve_' + protocol + '_monitored.png', dpi=300)
