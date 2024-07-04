@@ -240,8 +240,8 @@ class DFNetTunable(nn.Module):
 class TemperatureScaling(torch.nn.Module):
     def __init__(self):
         super(TemperatureScaling, self).__init__()
-        # initialize T to 1.5
-        self.temperature = torch.nn.Parameter(torch.full((1,), 1.5))
+        # initialize T to 10 based on Liang et al.
+        self.temperature = torch.nn.Parameter(torch.full((1,), 10.0))
 
     def forward(self, logits):
         return logits / self.temperature
@@ -834,14 +834,10 @@ class CSSRClassifier(nn.Module):
         for ae in self.class_aes:
             reconstructed = ae(x)
             cls_er = self.ae_error(reconstructed, x)
-            #cls_er = torch.clamp(cls_er, -100, 100)
             cls_ers.append(cls_er * self.gamma)
 
         cls_ers = torch.cat(cls_ers, dim=1)
         logits = -cls_ers
-        #probs = F.softmax(logits, dim=1)
-        #pooled_probs = F.adaptive_avg_pool1d(probs, 1).view(x.size(0), self.num_classes)
-        #return pooled_probs
         pooled_logits = F.adaptive_avg_pool1d(logits, 1).view(x.size(0), self.num_classes)
         return pooled_logits
 

@@ -122,6 +122,32 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         #print('ECE', check_calibration(scores, test_loader, approach, protocol))
         return preds, scores
 
+    # this is mostly copied from the baseline approach but adds
+    # some lines to introduce the trained temp scaling layer produced by
+    # train_temp_scaling_torch.py
+    elif approach == 'temp_scaling':
+        model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
+                                            61,
+                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
+        model.to(device)
+        model.eval()
+        temp_model = mymodels_torch.TemperatureScaling()
+        temp_model.to(device)
+        temp_model.eval()
+        logits_batches = []
+        for x_test, y_test in test_loader:
+            with torch.no_grad():
+                logits = model(x_test.to(device), training = False)
+                logits_batches.append(temp_model(logits).to('cpu'))
+        logits_concatenated = torch.cat(logits_batches, dim = 0)
+        preds = torch.softmax(logits_concatenated, dim=1).detach().numpy()
+        scores = []
+        for i in range(len(preds)):
+            scores.append(max(preds[i][:60]))
+        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        return preds, scores
+
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
     # using maximum softmax probability to rank predictions when they are for any monitored class
     #
@@ -195,9 +221,9 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # magnitude) are the scores for the binary monitored vs. unmonitored task
     elif (approach == 'cssr'):
         backbone = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                               60,
+                                               61,
                                                BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        backbone.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_monitored_model' + str(trial) + '.pt'))
+        backbone.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
         backbone.to(device)
         backbone.eval()
         classifier = mymodels_torch.CSSRClassifier(in_channels=256, num_classes=60, hidden_layers=[], latent_channels=64, gamma=0.1)
@@ -209,7 +235,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         for x_test, y_test in test_loader:
             with torch.no_grad():
                 x_features = backbone.extract_features(x_test.to(device))
-                logits = backbone(x_test.to(device), training = False)
+                logits = classifier(x_features)
                 logits_batches.append(logits.to('cpu'))
                 predicted_classes = torch.argmax(logits, dim=1)
                 reconstructed_features = []
@@ -223,7 +249,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
                 # concatenate the reconstructed features back into a batch
                 reconstructed_features = torch.cat(reconstructed_features, dim=0)
                 reconstruction_errors = torch.norm(reconstructed_features - x_features, p=1, dim=1, keepdim=True)
-                feature_magnitudes = torch.norm(x_features, p=1, dim=1, keepdim=True)
+                feature_magnitudes = torch.abs(x_features).mean(dim = 1, keepdim=True)
                 normalized_errors = reconstruction_errors / (feature_magnitudes ** 2)
                 # compute the knownness score...
                 # it is the mean across the length of "pixelwise" reconstruction errors
@@ -332,7 +358,7 @@ for protocol in ['https', 'tor']:
         # These approaches are the top competitors with the baseline
         #for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
         #                 'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
-        for approach in ['cssr']:
+        for approach in ['temp_scaling', 'cssr']:
         # These approaches are the competitors with monitored-only deterministic MSP
         #for approach in ['baseline_monitored', 'opengan']:
             trial_scores = []
@@ -432,13 +458,13 @@ for protocol in ['https', 'tor']:
         #    pickle.dump(pr_curve_data, handle)
 
         # create and save the P-R curve figure for top competitors with the baseline...
-        # colors correspond to decision functions 1, 3, 4, 5, 6 and lines correspond to data A(B), ABC(E)
-        #         baseline              baseline_mixup             opengan    opengan_mixup
-        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc cssr            
-        colors = ['#000000',            '#000000',                 '#ff0000', '#ff0000',
-                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00',     '#ff9900']
-        lines =  ['-',                  ':',                       '-',       ':',
-                  '-',       '-',       ':',        ':',           '-']
+        # colors correspond to decision functions 1-6 and lines correspond to data A(B), ABC(E)
+        #         baseline              baseline_mixup             opengan      opengan_mixup
+        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc temp_scaling cssr     
+        colors = ['#000000',            '#000000',                 '#ff0000',   '#ff0000',
+                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00',     '#cc00ff',   '#ff9900']
+        lines =  ['-',                  ':',                       '-',         ':',
+                  '-',       '-',       ':',        ':',           '-',         '-']
         # create and save the P-R curve figure for monitored-only
         #          baseline_mon opengan_mon
         #colors = ['#000000',   '#ff0000']
