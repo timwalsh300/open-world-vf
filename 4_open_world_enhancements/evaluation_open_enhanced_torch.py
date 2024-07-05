@@ -125,14 +125,14 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # this is mostly copied from the baseline approach but adds
     # some lines to introduce the trained temp scaling layer produced by
     # train_temp_scaling_torch.py
-    elif approach == 'temp_scaling':
+    elif 'temp_scaling' in approach:
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
         model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
         model.to(device)
         model.eval()
-        temp_model = mymodels_torch.TemperatureScaling()
+        temp_model = mymodels_torch.TemperatureScaling(float(approach[-3:]))
         temp_model.to(device)
         temp_model.eval()
         logits_batches = []
@@ -358,7 +358,7 @@ for protocol in ['https', 'tor']:
         # These approaches are the top competitors with the baseline
         #for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
         #                 'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
-        for approach in ['temp_scaling', 'cssr']:
+        for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
         # These approaches are the competitors with monitored-only deterministic MSP
         #for approach in ['baseline_monitored', 'opengan']:
             trial_scores = []
@@ -451,6 +451,7 @@ for protocol in ['https', 'tor']:
             print('Average PR-AUC:', pr_auc)
             print('-------------------------\n')
         
+        continue
         # save this for future runs, so we don't have to do
         # ten trials for every approach every time we add
         # a new approach
@@ -460,11 +461,11 @@ for protocol in ['https', 'tor']:
         # create and save the P-R curve figure for top competitors with the baseline...
         # colors correspond to decision functions 1-6 and lines correspond to data A(B), ABC(E)
         #         baseline              baseline_mixup             opengan      opengan_mixup
-        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc temp_scaling cssr     
+        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc cssr     
         colors = ['#000000',            '#000000',                 '#ff0000',   '#ff0000',
-                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00',     '#cc00ff',   '#ff9900']
+                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00',     '#ff9900']
         lines =  ['-',                  ':',                       '-',         ':',
-                  '-',       '-',       ':',        ':',           '-',         '-']
+                  '-',       '-',       ':',        ':',           '-']
         # create and save the P-R curve figure for monitored-only
         #          baseline_mon opengan_mon
         #colors = ['#000000',   '#ff0000']

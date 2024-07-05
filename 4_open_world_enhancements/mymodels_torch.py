@@ -238,10 +238,10 @@ class DFNetTunable(nn.Module):
 # just one parameter, the temperature, to scale
 # the logits of another trained model
 class TemperatureScaling(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, t = 1.0):
         super(TemperatureScaling, self).__init__()
         # initialize T to 10 based on Liang et al.
-        self.temperature = torch.nn.Parameter(torch.full((1,), 10.0))
+        self.temperature = torch.nn.Parameter(torch.full((1,), t))
 
     def forward(self, logits):
         return logits / self.temperature
