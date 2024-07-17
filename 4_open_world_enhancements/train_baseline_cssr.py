@@ -62,7 +62,7 @@ for representation in ['dschuster16', 'schuster8']:
             val_tensors = torch.load(representation + '_' + protocol + '_val_mon_tensors.pt')
             val_dataset = torch.utils.data.TensorDataset(*val_tensors)
             train_loader = torch.utils.data.DataLoader(train_dataset,
-                                                       batch_size = 32,
+                                                       batch_size = BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size'],
                                                        shuffle=False)
             val_loader = torch.utils.data.DataLoader(val_dataset,
                                                      batch_size = len(val_dataset),
@@ -79,18 +79,17 @@ for representation in ['dschuster16', 'schuster8']:
             print('...trial', trial)
             # load the pre-trained model that does feature extraction
             backbone = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                                   61,
+                                                   60,
                                                    BEST_HYPERPARAMETERS[representation + '_' + protocol])
-            backbone.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
+            backbone.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_monitored_model' + str(trial) + '.pt'))
             backbone.to(device)
             backbone.eval()
             # instantiate the CSSR classifier
-            classifier = mymodels_torch.CSSRClassifier(in_channels=256, num_classes=60, hidden_layers=[], latent_channels=64, gamma=0.1)
+            classifier = mymodels_torch.CSSRClassifier(in_channels=256, num_classes=60, hidden_layers=[], latent_channels=32, gamma=0.1)
             classifier.to(device)
-            #criterion = torch.nn.NLLLoss()
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(classifier.parameters(), lr=0.001)
-            early_stopping = EarlyStopping(patience = 20,
+            early_stopping = EarlyStopping(patience = 60,
                                            verbose = True,
                                            path = (representation + '_' + protocol + '_baseline_cssr_model' + str(trial) + '.pt'))
             print('Starting to train now for', representation, protocol)
@@ -100,12 +99,6 @@ for representation in ['dschuster16', 'schuster8']:
                 for x_train, y_train in train_loader:
                     optimizer.zero_grad()
                     x_train_features = backbone.extract_features(x_train.to(device))
-                    #softmax_probs = classifier(x_train_features)
-                    # Compute log probabilities for NLLLoss()
-                    #log_probs = torch.log(softmax_probs)
-                    # Convert one-hot encoded vectors to class indices
-                    #y_train_indices = torch.argmax(y_train, dim=1)
-                    #loss = criterion(log_probs, y_train_indices.to(device))
                     output = classifier(x_train_features)
                     loss = criterion(output, y_train.to(device))
                     training_loss += loss.item()
@@ -119,10 +112,7 @@ for representation in ['dschuster16', 'schuster8']:
                 with torch.no_grad():
                     for x_val, y_val in val_loader:
                         x_val_features = backbone.extract_features(x_val.to(device))
-                        #softmax_probs = classifier(x_val_features)
-                        #log_probs = torch.log(softmax_probs)
                         y_val_indices = torch.argmax(y_val, dim=1)
-                        #loss = criterion(log_probs, y_val_indices.to(device))
                         output = classifier(x_val_features)
                         loss = criterion(output, y_val.to(device))
                         val_loss += loss.item()
