@@ -1,12 +1,11 @@
-# This takes arguments for the protocol and lambda_g. It loads
+# This takes only one argument for the protocol. It loads
 # pre-trained baseline models to use as feature extractors
-# and trains a discriminator on real monitored and
-# unmonitored class features, plus fake monitored features
+# and trains a discriminator on real monitored class features,
+# plus fake monitored features
 # from a generator that is being trained adversarially
 #
-# It applies mixup in feature space while updating the
-# discriminator, which the original paper found to stabilize
-# GAN training
+# The discriminator does not see real unmonitored training
+# instances
 #
 # The generator used here is an adaptation of the OpenGAN
 # code, and the discriminator is the fully-connected layers
@@ -31,7 +30,7 @@ plot_tsne = False
 # 0.50 = equal weight for real unmonitored and fake monitored
 # 0.75 = overweight fake monitored instances
 # 1.00 = only fake monitored, for when training data is monitored-only
-lambda_g = float(sys.argv[2])
+lambda_g = 1.0
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
@@ -136,7 +135,7 @@ for representation in ['dschuster16', 'schuster8']:
                                                 BEST_HYPERPARAMETERS[representation + '_' + protocol])
             model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
             model.to(device)
-            model.eval()     
+            model.eval()
             # instantiate the discriminator
             netD = mymodels_torch.DiscriminatorDFNet_fea(INPUT_SHAPES[representation],
                                                          61,
@@ -155,7 +154,7 @@ for representation in ['dschuster16', 'schuster8']:
             criterionG = torch.nn.BCEWithLogitsLoss()
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_opengan_mixup_model' + str(trial) + '.pt'))
+                                           path = (representation + '_' + protocol + '_opengan_monitored_model' + str(trial) + '.pt'))
             # these next two lines are used to apply multi-class labels
             # to the fakes when training the discriminator
             unmonitored_label = torch.zeros(61)
@@ -209,14 +208,8 @@ for representation in ['dschuster16', 'schuster8']:
                         y_train = torch.cat([y_train_mon, y_fake_60])
                     # only update the discriminator every few epochs
                     if epoch % lambda_e == 0:
-                        # the next seven lines implement mixup
-                        lam = numpy.random.beta(0.1, 0.1)
-                        batch_size = features.size(0)
-                        index = torch.randperm(batch_size)
-                        mixed_features = lam * features + (1 - lam) * features[index, :]
-                        mixed_y = lam * y_train + (1 - lam) * y_train[index, :]
-                        output = netD(mixed_features, training = True)
-                        loss = criterionD(output, mixed_y.to(device))
+                        output = netD(features, training = True)
+                        loss = criterionD(output, y_train.to(device))
                         loss.backward()
                         optimizerD.step()
                         lossD += loss.item()

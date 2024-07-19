@@ -93,7 +93,11 @@ def get_scores(test_loader, protocol, representation, approach, trial):
             # if the model was torn between two monitored classes.
             # We're implying the the probability of 60 is 1.0 - this.
             scores.append(max(preds[i][:60]))
-        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        if trial == 0:
+            try:
+                print('ECE', check_calibration(scores, test_loader, approach, protocol))
+            except:
+                pass
         return preds, scores
 
     # this is just a 60-way classification model relying only on MSP
@@ -161,7 +165,11 @@ def get_scores(test_loader, protocol, representation, approach, trial):
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
         model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model' + str(trial) + '.pt'))
         preds, scores = get_bayesian_msp(test_loader, model, 61)
-        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        if trial == 0:
+            try:
+                print('ECE', check_calibration(scores, test_loader, approach, protocol))
+            except:
+                pass
         return preds, scores
 
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
@@ -183,14 +191,12 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # this loads a trained baseline model and OpenGAN discriminator and returns
     # the predictions and scores from the discriminator
     elif (approach == 'opengan' or
-          approach == 'opengan_mixup'):
+          approach == 'opengan_mixup' or
+          approach == 'opengan_monitored'):
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        if approach == 'opengan':
-            model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
-        elif approach == 'opengan_mixup':
-            model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_mixup_model' + str(trial) + '.pt'))
+        model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
         model.to(device)
         model.eval()
         discriminator = mymodels_torch.DiscriminatorDFNet_fea(INPUT_SHAPES[representation],
@@ -212,56 +218,47 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         return preds, scores
 
     # this loads a baseline model trained only on the monitored set
-    # to extract feature maps and get N-way classification predictions
+    # to extract feature maps and get closed-set predictions
     #
-    # then loads the trained autoencoders for the predicted classes to
-    # encode and decode the feature maps
+    # then loads the trained CSSRClassifier to get the reconstruction 
+    # errors produced by the autoencoders for the predicted classes
     #
-    # the negative class-specific reconstruction errors (normalized by feature
-    # magnitude) are the scores for the binary monitored vs. unmonitored task
+    # the negative class-specific reconstruction errors (normalized by 
+    # class-specific means and feature magnitudes) are the scores for
+    # the binary monitored vs. unmonitored task
     elif (approach == 'cssr'):
         backbone = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                               61,
+                                               60,
                                                BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        backbone.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
+        backbone.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_monitored_model' + str(trial) + '.pt'))
         backbone.to(device)
         backbone.eval()
-        classifier = mymodels_torch.CSSRClassifier(in_channels=256, num_classes=60, hidden_layers=[], latent_channels=64, gamma=0.1)
+        classifier = mymodels_torch.CSSRClassifier(in_channels=256, num_classes=60, hidden_layers=[], latent_channels=32, gamma=0.1)
         classifier.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_cssr_model' + str(trial) + '.pt'))
         classifier.to(device)
         classifier.eval()
+        mean_reconstruction_errors = torch.load('train_baseline_cssr_means_' + protocol + '.pt')
         logits_batches = []
-        scores_batches = []
+        scores = []
         for x_test, y_test in test_loader:
             with torch.no_grad():
+                x_test = x_test.to(device)
                 x_features = backbone.extract_features(x_test.to(device))
-                logits = classifier(x_features)
+                logits = backbone(x_test, training = False)
                 logits_batches.append(logits.to('cpu'))
                 predicted_classes = torch.argmax(logits, dim=1)
-                reconstructed_features = []
                 for i in range(x_features.size(0)):
-                    # select the autoencoder for the predicted class of the i-th instance
-                    autoencoder = classifier.class_aes[predicted_classes[i].item()]
-                    # reshape the feature map of the i-th instance to match the input shape expected by the autoencoder
+                    predicted_class = predicted_classes[i].item()
+                    autoencoder = classifier.class_aes[predicted_class]
                     instance_features = x_features[i:i+1]
                     rc = autoencoder(instance_features)
-                    reconstructed_features.append(rc)
-                # concatenate the reconstructed features back into a batch
-                reconstructed_features = torch.cat(reconstructed_features, dim=0)
-                reconstruction_errors = torch.norm(reconstructed_features - x_features, p=1, dim=1, keepdim=True)
-                feature_magnitudes = torch.abs(x_features).mean(dim = 1, keepdim=True)
-                normalized_errors = reconstruction_errors / (feature_magnitudes ** 2)
-                # compute the knownness score...
-                # it is the mean across the length of "pixelwise" reconstruction errors
-                #
-                # lower normalized reconstruction error indicates a higher likelihood
-                # of being from a monitored class, so we make the errors negative
-                mean_normalized_errors = normalized_errors.mean(dim=2)
-                scores_batches.append(-mean_normalized_errors.to('cpu'))
-                        
+                    # make it negative, so lower reconstruction errors correspond to higher scores
+                    reconstruction_error = -torch.norm(rc - instance_features, p=1, dim=1, keepdim=True).mean().item()
+                    feature_magnitude = torch.norm(instance_features, p=1, dim=1, keepdim=True).mean().item()
+                    class_mean = mean_reconstruction_errors[(protocol, representation)][predicted_class]
+                    scores.append(reconstruction_error / (feature_magnitude ** 2) / class_mean)
         logits_concatenated = torch.cat(logits_batches, dim = 0)
         preds = torch.softmax(logits_concatenated, dim=1).detach().numpy()
-        scores = torch.cat(scores_batches, dim = 0).detach().numpy()
         return preds, scores
 
 def get_bayesian_msp(test_loader, model, classes):
@@ -358,9 +355,10 @@ for protocol in ['https', 'tor']:
         # These approaches are the top competitors with the baseline
         #for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
         #                 'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
-        for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
+        #for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
         # These approaches are the competitors with monitored-only deterministic MSP
-        #for approach in ['baseline_monitored', 'opengan']:
+        #for approach in ['baseline_monitored', 'opengan_monitored', 'cssr']:
+        for approach in []:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
@@ -451,7 +449,6 @@ for protocol in ['https', 'tor']:
             print('Average PR-AUC:', pr_auc)
             print('-------------------------\n')
         
-        continue
         # save this for future runs, so we don't have to do
         # ten trials for every approach every time we add
         # a new approach
@@ -461,22 +458,24 @@ for protocol in ['https', 'tor']:
         # create and save the P-R curve figure for top competitors with the baseline...
         # colors correspond to decision functions 1-6 and lines correspond to data A(B), ABC(E)
         #         baseline              baseline_mixup             opengan      opengan_mixup
-        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc cssr     
+        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc   
         colors = ['#000000',            '#000000',                 '#ff0000',   '#ff0000',
-                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00',     '#ff9900']
+                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00']
         lines =  ['-',                  ':',                       '-',         ':',
-                  '-',       '-',       ':',        ':',           '-']
+                  '-',       '-',       ':',        ':']
         # create and save the P-R curve figure for monitored-only
-        #          baseline_mon opengan_mon
-        #colors = ['#000000',   '#ff0000']
-        #lines =  ['-',         '-']
+        #         baseline_mon opengan_mon  cssr
+        #colors = ['#000000',   '#ff0000',   '#ff9900']
+        #lines =  ['-',         '-',         '-']
         num_styles = len(lines)
         num_colors = len(colors)
         plt.figure(figsize=(16, 12))
-        for i, (label, mean_precisions) in enumerate(pr_curve_data.items()):
+        names = {'baseline': 'MSP (1AB)', 'baseline_mixup': 'MSP + mixup (1ABC)', 'opengan': 'OpenGAN (5ABE)', 'opengan_mixup': 'OpenGAN + mixup (5ABCE)',
+                 'sscd': 'Bayes. MSP (3AB)', 'sscd_uncertainty': 'Bayes. Unc. (4AB)', 'sscd_mixup': 'Bayes. MSP + mixup (3ABC)', 'sscd_mixup_uncertainty': 'Bayes. Unc. + mixup (4ABC)'}
+        for i, (approach, mean_precisions) in enumerate(pr_curve_data.items()):
             color = colors[i % num_colors]
             line_style = lines[i % num_styles]
-            plt.plot(common_recall_levels, mean_precisions, label=label, color=color, linestyle=line_style)
+            plt.plot(common_recall_levels, mean_precisions, label=names[approach], color=color, linestyle=line_style)
         plt.xlabel('Recall', fontsize = 32)
         plt.ylabel('Precision', fontsize = 32)
         protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
@@ -486,8 +485,9 @@ for protocol in ['https', 'tor']:
         elif protocol == 'tor':
             plt.legend(loc = 'upper right', fontsize = 20, title = 'Approach', title_fontsize = 20)
         plt.tick_params(axis='both', which='major', labelsize=20)
-        plt.xlim(0.5, 1)
+        plt.xlim(0.25, 1)
         plt.ylim(0.98, 1)
+        #plt.ylim(0.5, 1)
         plt.grid(True)
         plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
         #plt.savefig('enhanced_pr_curve_' + protocol + '_monitored.png', dpi=300)
