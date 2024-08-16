@@ -12,6 +12,7 @@ import numpy
 from sklearn.metrics import precision_recall_curve, auc
 from sklearn.calibration import calibration_curve
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy.interpolate import interp1d
 import pickle
 
@@ -25,6 +26,9 @@ BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv
 pr_curve_data = {}
     
 common_recall_levels = numpy.linspace(0, 1, 500)
+
+PLOT_MSP_DIST = False
+msp_dist_data = {}
 
 # this plots and saves a reliability diagram and then
 # returns the calculated expected calibration error
@@ -130,10 +134,16 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # some lines to introduce the trained temp scaling layer produced by
     # train_temp_scaling_torch.py
     elif 'temp_scaling' in approach:
-        model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
-                                            61,
-                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
+        if 'monitored' in approach:
+            model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
+                                                60,
+                                                BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+            model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_monitored_model' + str(trial) + '.pt'))
+        else:
+            model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
+                                                61,
+                                                BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+            model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
         model.to(device)
         model.eval()
         temp_model = mymodels_torch.TemperatureScaling(float(approach[-3:]))
@@ -350,12 +360,13 @@ for protocol in ['https', 'tor']:
         except Exception as e:
             continue
 
-        with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
-            pr_curve_data = pickle.load(handle)
+        #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
+        #    pr_curve_data = pickle.load(handle)
         # These approaches are the top competitors with the baseline
         #for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
         #                 'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
         #for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
+        #for approach in ['baseline', 'temp_scaling_016', 'baseline_monitored', 'temp_scaling_monitored_016']:
         # These approaches are the competitors with monitored-only deterministic MSP
         #for approach in ['baseline_monitored', 'opengan_monitored', 'cssr']:
         for approach in []:
@@ -364,7 +375,7 @@ for protocol in ['https', 'tor']:
             trial_t_50_FPRs = []
             trial_t_75_FPRs = []
             trial_accuracies = []
-            for trial in range(10):
+            for trial in range(1):
                 print('Getting scores for', protocol, approach, '... Trial', trial)
                 
                 # find t_50 on the validation set for this model
@@ -431,6 +442,15 @@ for protocol in ['https', 'tor']:
                 print('... False positives at t_75:', len(FP_visits))
                 if len(FP_visits) <= 10:
                     print(FP_visits)
+            
+            if PLOT_MSP_DIST:
+                if trial == 0:
+                    scores_np = numpy.array(scores)
+                    labels_np = numpy.array(true_binary)
+                    scores_TP = scores_np[labels_np == 1]
+                    scores_TN = scores_np[labels_np == 0]
+                    msp_dist_data[approach] = (scores_TP, scores_TN)
+                
 
             print('Mean recall at precision of 1.0:', numpy.mean(trial_best_case_recalls), 'StdDev: ', numpy.std(trial_best_case_recalls))
             print('Mean accuracy within monitored:', numpy.mean(trial_accuracies), 'StdDev: ', numpy.std(trial_accuracies))
@@ -448,7 +468,49 @@ for protocol in ['https', 'tor']:
             pr_auc = auc(common_recall_levels, mean_precisions)
             print('Average PR-AUC:', pr_auc)
             print('-------------------------\n')
-        
+            
+        if PLOT_MSP_DIST:
+            protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
+            plt.figure(figsize=(12, 6))
+            plt.subplot(1, 2, 1)  # 1 row, 2 columns, 1st subplot
+            sns.kdeplot(msp_dist_data['baseline'][0], color="green", label="Monitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['baseline'][1], color="gray", label="Unmonitored", linewidth=3)
+            plt.title('1AB ' + protocol_string)
+            plt.xlabel('MSP')
+            plt.xlim(0.0, 1.0)  # Set the x-axis limits to [0.0, 1.0]
+            plt.ylabel('Density')
+            plt.legend()
+
+            plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd subplot
+            sns.kdeplot(msp_dist_data['temp_scaling_016'][0], color="green", label="Monitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['temp_scaling_016'][1], color="gray", label="Unmonitored", linewidth=3)
+            plt.title('2AB (T = 16) ' + protocol_string)
+            plt.xlabel('MSP')
+            plt.xlim(0.0, 1.0)  # Set the x-axis limits to [0.0, 1.0]
+            plt.ylabel('Density')
+            plt.legend()
+            plt.savefig('temp_scaling_msp_dist_' + protocol + '.png', dpi=300)
+            
+            plt.figure(figsize=(12, 6))
+            plt.subplot(1, 2, 1)  # 1 row, 2 columns, 1st subplot
+            sns.kdeplot(msp_dist_data['baseline_monitored'][0], color="green", label="Monitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['baseline_monitored'][1], color="gray", label="Unmonitored", linewidth=3)
+            plt.title('1A ' + protocol_string)
+            plt.xlabel('MSP')
+            plt.xlim(0.0, 1.0)  # Set the x-axis limits to [0.0, 1.0]
+            plt.ylabel('Density')
+            plt.legend()
+
+            plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd subplot
+            sns.kdeplot(msp_dist_data['temp_scaling_monitored_016'][0], color="green", label="Monitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['temp_scaling_monitored_016'][1], color="gray", label="Unmonitored", linewidth=3)
+            plt.title('2A (T = 16) ' + protocol_string)
+            plt.xlabel('MSP')
+            plt.xlim(0.0, 1.0)  # Set the x-axis limits to [0.0, 1.0]
+            plt.ylabel('Density')
+            plt.legend()
+            plt.savefig('temp_scaling_monitored_msp_dist_' + protocol + '.png', dpi=300)
+
         # save this for future runs, so we don't have to do
         # ten trials for every approach every time we add
         # a new approach
