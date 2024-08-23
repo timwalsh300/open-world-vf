@@ -30,6 +30,64 @@ common_recall_levels = numpy.linspace(0, 1, 500)
 PLOT_MSP_DIST = False
 msp_dist_data = {}
 
+PLOT_CSSR_DIST = False
+
+# for the CSSR approach, this creates and saves a bar chart for each
+# autoencorder's mean, normalized reconstruction error for monitored
+# and unmonitored instances
+#
+# it also creates and saves a scatter plot showing the individual scores
+# for each instance, per class
+def plot_classwise_scores(preds, scores, true_binary_labels, num_classes, protocol):
+    positive_scores_by_class = [[] for _ in range(num_classes)]
+    negative_scores_by_class = [[] for _ in range(num_classes)]
+    predicted_classes = numpy.argmax(preds, axis=1)
+    
+    for i, predicted_class in enumerate(predicted_classes):
+        if true_binary_labels[i]:  # monitored (positive) instance
+            positive_scores_by_class[predicted_class].append(-scores[i])
+        else:  # unmonitored (negative) instance
+            negative_scores_by_class[predicted_class].append(-scores[i])
+
+    mean_positive_scores = [numpy.mean(scores) if scores else 0 for scores in positive_scores_by_class]
+    mean_negative_scores = [numpy.mean(scores) if scores else 0 for scores in negative_scores_by_class]
+    
+    x = numpy.arange(num_classes)
+    width = 0.35
+    protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.bar(x - width/2, mean_positive_scores, width, label='Monitored', color='blue')
+    ax.bar(x + width/2, mean_negative_scores, width, label='Unmonitored', color='black')
+    ax.set_xlabel('Predicted Class')
+    ax.set_ylabel('Mean Score')
+    ax.set_title('Mean Scores by Predicted Class (' + protocol_string + ' Test Set)')
+    ax.legend()
+    ax.set_xticks(x)
+    ax.set_xticklabels(x, rotation=90)
+    fig.tight_layout()
+    plt.savefig('cssr_test_means_' + protocol + '.png', dpi=300)
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    for i in range(num_classes):
+        # Plot monitored scores
+        if positive_scores_by_class[i]:
+            ax.scatter([i - width/2] * len(positive_scores_by_class[i]), positive_scores_by_class[i], 
+                       color='blue', s=30, alpha=0.2, label='Monitored' if i == 0 else "")
+        
+        # Plot unmonitored scores with reduced size/alpha to handle imbalance
+        if negative_scores_by_class[i]:
+            ax.scatter([i + width/2] * len(negative_scores_by_class[i]), negative_scores_by_class[i], 
+                       color='black', s=10, alpha=0.2, label='Unmonitored' if i == 0 else "")
+    ax.set_xlabel('Predicted Class')
+    ax.set_ylabel('Score')
+    ax.set_title('Scores by Predicted Class (' + protocol_string + ' Test Set)')
+    ax.set_xticks(x)
+    ax.set_xticklabels(x, rotation=90)
+    ax.legend()
+    fig.tight_layout()
+    plt.savefig('cssr_test_instances_' + protocol + '.png', dpi=300)
+
 # this plots and saves a reliability diagram and then
 # returns the calculated expected calibration error
 def check_calibration(scores, test_loader, approach, protocol):
@@ -99,7 +157,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
             scores.append(max(preds[i][:60]))
         if trial == 0:
             try:
-                print('ECE', check_calibration(scores, test_loader, approach, protocol))
+                # print('ECE', check_calibration(scores, test_loader, approach, protocol))
             except:
                 pass
         return preds, scores
@@ -127,7 +185,11 @@ def get_scores(test_loader, protocol, representation, approach, trial):
             # if the model was torn between two monitored classes.
             # We're implying the the probability of 60 is 1.0 - this.
             scores.append(max(preds[i][:60]))
-        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        if trial == 0:
+            try:
+                # print('ECE', check_calibration(scores, test_loader, approach, protocol))
+            except:
+                pass
         return preds, scores
 
     # this is mostly copied from the baseline approach but adds
@@ -159,7 +221,11 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         scores = []
         for i in range(len(preds)):
             scores.append(max(preds[i][:60]))
-        #print('ECE', check_calibration(scores, test_loader, approach, protocol))
+        if trial == 0:
+            try:
+                # print('ECE', check_calibration(scores, test_loader, approach, protocol))
+            except:
+                pass
         return preds, scores
 
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
@@ -177,7 +243,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         preds, scores = get_bayesian_msp(test_loader, model, 61)
         if trial == 0:
             try:
-                print('ECE', check_calibration(scores, test_loader, approach, protocol))
+                # print('ECE', check_calibration(scores, test_loader, approach, protocol))
             except:
                 pass
         return preds, scores
@@ -359,23 +425,27 @@ for protocol in ['https', 'tor']:
                 splits = pickle.load(handle)
         except Exception as e:
             continue
-
+        
+        # open this to get the data saved from past runs so that we don't
+        # need to run ten trials for every approach every time we add
+        # a new approach, but we can run an approach again and overwrite
+        # whatever was already saved for it
         #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
         #    pr_curve_data = pickle.load(handle)
+        
         # These approaches are the top competitors with the baseline
-        #for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
-        #                 'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
+        for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
+                         'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
         #for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
         #for approach in ['baseline', 'temp_scaling_016', 'baseline_monitored', 'temp_scaling_monitored_016']:
         # These approaches are the competitors with monitored-only deterministic MSP
         #for approach in ['baseline_monitored', 'opengan_monitored', 'cssr']:
-        for approach in []:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
             trial_t_75_FPRs = []
             trial_accuracies = []
-            for trial in range(1):
+            for trial in range(10):
                 print('Getting scores for', protocol, approach, '... Trial', trial)
                 
                 # find t_50 on the validation set for this model
@@ -450,7 +520,10 @@ for protocol in ['https', 'tor']:
                     scores_TP = scores_np[labels_np == 1]
                     scores_TN = scores_np[labels_np == 0]
                     msp_dist_data[approach] = (scores_TP, scores_TN)
-                
+                    
+            if PLOT_CSSR_DIST:
+                if trial == 0:
+                    plot_classwise_scores(preds, scores, true_binary, num_classes=60, protocol=protocol)
 
             print('Mean recall at precision of 1.0:', numpy.mean(trial_best_case_recalls), 'StdDev: ', numpy.std(trial_best_case_recalls))
             print('Mean accuracy within monitored:', numpy.mean(trial_accuracies), 'StdDev: ', numpy.std(trial_accuracies))
@@ -469,12 +542,15 @@ for protocol in ['https', 'tor']:
             print('Average PR-AUC:', pr_auc)
             print('-------------------------\n')
             
+        # this creates figures to show the separation between the
+        # MSP distributions for monitored and unmonitored instances
+        # before and after temperature scaling
         if PLOT_MSP_DIST:
             protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
             plt.figure(figsize=(12, 6))
             plt.subplot(1, 2, 1)  # 1 row, 2 columns, 1st subplot
-            sns.kdeplot(msp_dist_data['baseline'][0], color="green", label="Monitored", linewidth=3)
-            sns.kdeplot(msp_dist_data['baseline'][1], color="gray", label="Unmonitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['baseline'][0], color="blue", label="Monitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['baseline'][1], color="black", label="Unmonitored", linewidth=3)
             plt.title('1AB ' + protocol_string)
             plt.xlabel('MSP')
             plt.xlim(0.0, 1.0)  # Set the x-axis limits to [0.0, 1.0]
@@ -482,8 +558,8 @@ for protocol in ['https', 'tor']:
             plt.legend()
 
             plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd subplot
-            sns.kdeplot(msp_dist_data['temp_scaling_016'][0], color="green", label="Monitored", linewidth=3)
-            sns.kdeplot(msp_dist_data['temp_scaling_016'][1], color="gray", label="Unmonitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['temp_scaling_016'][0], color="blue", label="Monitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['temp_scaling_016'][1], color="black", label="Unmonitored", linewidth=3)
             plt.title('2AB (T = 16) ' + protocol_string)
             plt.xlabel('MSP')
             plt.xlim(0.0, 1.0)  # Set the x-axis limits to [0.0, 1.0]
@@ -493,8 +569,8 @@ for protocol in ['https', 'tor']:
             
             plt.figure(figsize=(12, 6))
             plt.subplot(1, 2, 1)  # 1 row, 2 columns, 1st subplot
-            sns.kdeplot(msp_dist_data['baseline_monitored'][0], color="green", label="Monitored", linewidth=3)
-            sns.kdeplot(msp_dist_data['baseline_monitored'][1], color="gray", label="Unmonitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['baseline_monitored'][0], color="blue", label="Monitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['baseline_monitored'][1], color="black", label="Unmonitored", linewidth=3)
             plt.title('1A ' + protocol_string)
             plt.xlabel('MSP')
             plt.xlim(0.0, 1.0)  # Set the x-axis limits to [0.0, 1.0]
@@ -502,8 +578,8 @@ for protocol in ['https', 'tor']:
             plt.legend()
 
             plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd subplot
-            sns.kdeplot(msp_dist_data['temp_scaling_monitored_016'][0], color="green", label="Monitored", linewidth=3)
-            sns.kdeplot(msp_dist_data['temp_scaling_monitored_016'][1], color="gray", label="Unmonitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['temp_scaling_monitored_016'][0], color="blue", label="Monitored", linewidth=3)
+            sns.kdeplot(msp_dist_data['temp_scaling_monitored_016'][1], color="black", label="Unmonitored", linewidth=3)
             plt.title('2A (T = 16) ' + protocol_string)
             plt.xlabel('MSP')
             plt.xlim(0.0, 1.0)  # Set the x-axis limits to [0.0, 1.0]

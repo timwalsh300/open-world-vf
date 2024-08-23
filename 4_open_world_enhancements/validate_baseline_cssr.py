@@ -55,10 +55,11 @@ def plot_reconstruction_errors(mean_reconstruction_errors, mean_reconstruction_e
     
     x = numpy.arange(num_classes)
     width = 0.35
+    protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
 
     fig, ax1 = plt.subplots(figsize=(12, 6))
     
-    ax1.bar(x - width/2, mean_reconstruction_errors, width, label='No Normalization', color='black')
+    ax1.bar(x - width/2, mean_reconstruction_errors, width, label='No Normalization', color='cyan')
     ax1.set_xlabel('Class')
     ax1.set_ylabel('Reconstruction Error (No Normalization)', color='black')
     ax1.tick_params(axis='y', labelcolor='black')
@@ -67,15 +68,15 @@ def plot_reconstruction_errors(mean_reconstruction_errors, mean_reconstruction_e
     ax1.set_xticklabels(x, rotation=90)
 
     ax2 = ax1.twinx()
-    ax2.bar(x + width/2, mean_reconstruction_errors_fea_mag, width, label='Feature Magnitude Normalization', color='gray')
-    ax2.set_ylabel('Reconstruction Error (Feature Magnitude Normalization)', color='gray')
-    ax2.tick_params(axis='y', labelcolor='gray')
+    ax2.bar(x + width/2, mean_reconstruction_errors_fea_mag, width, label='Feature Magnitude Normalization', color='blue')
+    ax2.set_ylabel('Reconstruction Error (Feature Magnitude Normalization)', color='black')
+    ax2.tick_params(axis='y', labelcolor='black')
     ax2.legend(loc='upper right')
     
     fig.tight_layout()
     plt.subplots_adjust(top=0.85) 
-    plt.title('Mean Reconstruction Errors by Class (' + protocol + ')')
-    plt.savefig('train_baseline_cssr_' + protocol + '.png', dpi=300)
+    plt.title('Mean Reconstruction Errors by Class (' + protocol_string + ' Closed-World Training Set)')
+    plt.savefig('cssr_train_means_' + protocol + '.png', dpi=300)
     plt.show()
 
 def evaluate_cssr_with_normalized_errors(classifier, backbone, loader, device, mean_reconstruction_errors):
@@ -175,7 +176,7 @@ for protocol in ['https', 'tor']:
                                                                                                                  train_loader,
                                                                                                                  device)
         plot_reconstruction_errors(mean_reconstruction_errors, mean_reconstruction_errors_fea_mag, protocol)
-        mean_reconstruction_errors_dict[(protocol, representation)] = mean_reconstruction_errors
+        mean_reconstruction_errors_dict[(protocol, representation)] = mean_reconstruction_errors_fea_mag
         torch.save(mean_reconstruction_errors_dict, 'train_baseline_cssr_means_' + protocol + '.pt')
         # use the following line during evaluation to load the dictionary of class means learned from training
         # mean_reconstruction_errors_dict = torch.load('train_baseline_cssr_means_' + protocol + '.pt')
