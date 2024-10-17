@@ -42,26 +42,34 @@ Due to the considerable size of the raw dataset, to make it available while mini
 
 - [x] select thresholds based on max F1, zero FP, and 0.5 R over the validation set
 
-4_open_world_enhancements: Experiment with a number of more sophisticated methods attempting to address the theoretical shortcomings of the baseline, existing approach to the open-world / open set recognition task. 
+4_open_world_enhancements: Experiment with a number of more sophisticated methods attempting to address the theoretical shortcomings of the baseline, existing approach to the open-world / open set recognition task.
 
 - [x] Temperature scaling, threshold for calibrated max softmax probability
 
 - [x] Monte Carlo Dropout, Spike-and-Slab Concrete Dropout, threshold for Bayesian model averaged max softmax probability, total uncertainty, and epistemic uncertainty, with Standard Model / Background Class
 
-- [x] mixup for training data augmentation...
+- [x] mixup for training data augmentation, all pairs with Standard Model
 
-- [ ] NOTA defensive padding for training data augmentation...
+- [ ] NOTA defensive padding for training data augmentation, untargeted and targeted adversarial examples with PGD, mean and uniform (weighted average) padding between original and adversarial examples
 
-- [x] GAN-trained discriminator / augmentation of training data with generated fakes, threshold for discriminator prediction, also with mixup (but we might re-visit that)...
+- [x] GAN-trained discriminator / augmentation of training data with generated fakes, threshold for discriminator prediction, also with mixup (but we might re-visit that)
 
-- [x] Class-specific autoencoders, threshold for reconstruction error...
+- [x] Class-specific autoencoders, threshold for reconstruction error
+
+- [ ] Precision optimizers from Laserbeak?
 
 5_across_vantage_points
 
-- [ ] new training and validation sets from just two vantage points with distinct box plots (see end of Chapter 3)
+- [x] Create new closed-world training, validation, and test sets from all vantage points and hosting platforms. Train and test across all pairs of vantage points, ten trials each, both baseline_monitored (1A) approach and OpenGAN (5AE, lambda_g = 1.0)
 
-- [ ] new training and validation sets, same size, but sampled from all vantage points except us-west-2
+- [x] Test Vimeo models trained at each vantage point on us-west-2 64k open-world test sets
 
-- [ ] all data from all vantage points except us-west-2
+- [ ] Train on data sampled from all vantage points except us-west-2, of increasing size up to 10x the original training set, and test on us-west-2 64k open-world test sets
 
-- [ ] test against residential ISP and Wi-Fi
+6_across_hosting_platforms
+
+- [ ] Train on the 10 identical math instruction videos streamed from each hosting platform, and test closed-world on same videos streamed from the other hosting platforms, open-world streamed from Vimeo
+
+7_video_lengths
+
+- [ ] Truncate all traffic flows in us-west-2 Vimeo open-world data splits to 0:30, 1:00, 1:30, 2:00, 2:30, 3:00, 3:30 and repeat training and testing
