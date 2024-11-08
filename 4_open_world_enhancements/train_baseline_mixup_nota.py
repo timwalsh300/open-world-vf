@@ -5,15 +5,14 @@
 # data separately so that we can also experiment with
 # different pairings when creating NOTA instances.
 #
-# This trains the Spike and Slab Dropout with Concrete
-# Dropout model.
+# This version also applies mixup near the end of the training
+# loop, i.e. after generating the NOTA padding instances
 #
 # Outputs are the trained models
 
 import torch
 import mymodels_torch
 import numpy
-from bayesian_torch.models.dnn_to_bnn import get_kl_loss
 import sys
 from sklearn.metrics import precision_recall_curve, auc
 from sklearn.manifold import TSNE
@@ -39,6 +38,10 @@ BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv
                         
 NOTA_HYPERPARAMETERS = {'schuster8_tor': {'eps_fraction': 0.2, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.1},
                         'dschuster16_https': {'eps_fraction': 0.0004, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.00005}}
+
+# after tuning between 0.01 and 0.5
+MIXUP_HYPERPARAMETERS = {'schuster8_tor': {'alpha': 0.1},
+                        'dschuster16_https': {'alpha': 0.05}}
 
 def pgd_attack(baseline_model, x, y, pgd_steps, eps_fraction):
     overall_std = torch.std(x, unbiased=False)
@@ -74,6 +77,12 @@ def generate_NOTA_padding_instances(x_train_mon, number_of_NOTA_instances, basel
     x_train_NOTA = torch.cat([x_train_NOTA_wavg, x_train_NOTA_mean], dim=0)
     torch.clamp_(x_train_NOTA, x_train_mon.min(), x_train_mon.max())
     return x_train_NOTA
+
+def glorot_uniform(m):
+    if type(m) == torch.nn.Linear:
+        torch.nn.init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            torch.nn.init.zeros_(m.bias)
 
 # helpfully provided by ChatGPT
 class EarlyStopping:
@@ -142,7 +151,7 @@ for representation in ['dschuster16', 'schuster8']:
                                                        batch_size = 1,
                                                        shuffle=False)
             val_loader = torch.utils.data.DataLoader(val_dataset,
-                                                     batch_size = 64,
+                                                     batch_size = len(val_dataset),
                                                      shuffle=False)
         except Exception as e:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
@@ -170,17 +179,18 @@ for representation in ['dschuster16', 'schuster8']:
             baseline_model.eval()
             
             # instantiate the model that we'll actually train with NOTA
-            model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation], 61,
-                                                    BASELINE_HYPERPARAMETERS[representation + '_' + protocol],
-                                                    w = 1 / 10 * float(len(train_mon_dataset) + len(train_unmon_dataset)),
-                                                    d = 1 / float(len(train_mon_dataset) + len(train_mon_dataset)))
+            model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
+                                                61,
+                                                BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
             model.to(device)
+            if BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
+                model.apply(glorot_uniform)
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(model.parameters(),
                                          BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_sscd_nota_model' + str(trial) + '.pt'))
+                                           path = (representation + '_' + protocol + '_baseline_mixup_nota_model' + str(trial) + '.pt'))
             # these next two lines are used to apply multi-class labels
             # to the NOTA instances
             NOTA_label = torch.zeros(61)
@@ -230,14 +240,19 @@ for representation in ['dschuster16', 'schuster8']:
                     else:
                         x_train = torch.cat([x_train_mon, x_train_NOTA])
                         y_train = torch.cat([y_train_mon, y_train_NOTA])
-                    outputs = model(x_train, training=True)
-                    data_term = criterion(outputs, y_train.to(device))
-                    #print('data term', str(data_term.item()), end = ' ')
-                    gaussian_prior_term = get_kl_loss(model) / len(x_train)
-                    #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')
-                    bernoulli_prior_term = model.bernoulli_kl_loss(representation + '_' + protocol) / len(x_train)
-                    #print('Bernoulli prior term', str(bernoulli_prior_term.item()))
-                    loss = data_term + gaussian_prior_term + bernoulli_prior_term
+                        
+                    # apply mixup
+                    lam = numpy.random.beta(MIXUP_HYPERPARAMETERS[representation + '_' + protocol]['alpha'],
+                                            MIXUP_HYPERPARAMETERS[representation + '_' + protocol]['alpha'])
+                    # shuffle
+                    batch_size = x_train.size(0)
+                    index = torch.randperm(batch_size).to(device)
+                    mixed_x = lam * x_train + (1 - lam) * x_train[index, :]
+                    y_train = y_train.to(device)
+                    mixed_y = lam * y_train + (1 - lam) * y_train[index, :]
+                    
+                    outputs = model(mixed_x, training=True)
+                    loss = criterion(outputs, mixed_y)
                     training_loss += loss.item()
                     loss.backward()
                     optimizer.step()
@@ -254,11 +269,9 @@ for representation in ['dschuster16', 'schuster8']:
                         # real unmonitored instances on the t-SNE plot
                         y_batches.append(torch.full((y_train_NOTA.shape[0],), 2, dtype=torch.float32))
 
-                # check performance on NOTA
+                # check discriminator's performance on NOTA
                 # instances and the validation set
                 val_loss = 0.0
-                all_y_val_binary = []
-                all_preds_val_binary = []
                 with torch.no_grad():
                     model.eval()
                     #output = model(x_train_NOTA, training = False)
@@ -267,20 +280,17 @@ for representation in ['dschuster16', 'schuster8']:
                     #mean_pred_NOTA = preds_binary.detach().cpu().mean()
                 
                     for x_val, y_val in val_loader:
-                        logits_val = model(x_val.to(device), training = False)
+                        x_val = x_val.to(device)
+                        logits_val = model(x_val, training = False)
                         loss = criterion(logits_val, y_val.to(device))
                         val_loss += loss.item()
+                        
+                        # compute PR-AUC over the validation set
                         y_val_binary = 1 - y_val[:, 60]
-                        all_y_val_binary.append(y_val_binary.cpu())
                         preds_val = torch.softmax(logits_val, dim=1)
                         preds_val_binary, _ = torch.max(preds_val[:, :60], dim=1)
-                        all_preds_val_binary.append(preds_val_binary.cpu())
-                        
-                # compute PR-AUC over the validation set
-                all_y_val_binary = torch.cat(all_y_val_binary)
-                all_preds_val_binary = torch.cat(all_preds_val_binary)
-                precisions, recalls, thresholds = precision_recall_curve(all_y_val_binary.numpy(), all_preds_val_binary.numpy())
-                pr_auc = auc(recalls, precisions)
+                        precisions, recalls, thresholds = precision_recall_curve(y_val_binary.cpu(), preds_val_binary.cpu())
+                        pr_auc = auc(recalls, precisions)
 
                 # every few epochs, produce a t-SNE to show the relationship
                 # between the monitored, unmonitored, and NOTA instances
@@ -308,7 +318,7 @@ for representation in ['dschuster16', 'schuster8']:
                     plt.savefig(f'tsne_nota_{protocol}_features_{eps_fraction}_{pgd_steps}_{alpha}_{noise_fraction}.png')
                     plt.close()
 
-                print(f'Epoch {epoch+1} \t Training loss: {training_loss / (len(train_mon_dataset) + len(train_unmon_dataset))} \t Val Loss: {val_loss / len(val_dataset)} \t Val PR-AUC: {pr_auc}')
+                print(f'Epoch {epoch+1} \t Training loss: {training_loss} \t Val Loss: {val_loss / len(val_dataset)} \t Val PR-AUC: {pr_auc}')
                 # check if this is a new low validation loss and, if so, save the model
                 #
                 # otherwise increment the counter towards the patience limit

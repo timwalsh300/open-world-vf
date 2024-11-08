@@ -240,7 +240,6 @@ class DFNetTunable(nn.Module):
 class TemperatureScaling(torch.nn.Module):
     def __init__(self, t = 1.0):
         super(TemperatureScaling, self).__init__()
-        # initialize T to 10 based on Liang et al.
         self.temperature = torch.nn.Parameter(torch.full((1,), t))
 
     def forward(self, logits):

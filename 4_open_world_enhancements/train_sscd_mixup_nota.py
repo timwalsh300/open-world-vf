@@ -8,6 +8,9 @@
 # This trains the Spike and Slab Dropout with Concrete
 # Dropout model.
 #
+# This version also applies mixup near the end of the training
+# loop, i.e. after generating the NOTA padding instances
+#
 # Outputs are the trained models
 
 import torch
@@ -39,6 +42,10 @@ BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv
                         
 NOTA_HYPERPARAMETERS = {'schuster8_tor': {'eps_fraction': 0.2, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.1},
                         'dschuster16_https': {'eps_fraction': 0.0004, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.00005}}
+
+# after tuning between 0.01 and 0.5
+MIXUP_HYPERPARAMETERS = {'schuster8_tor': {'alpha': 0.1},
+                        'dschuster16_https': {'alpha': 0.05}}
 
 def pgd_attack(baseline_model, x, y, pgd_steps, eps_fraction):
     overall_std = torch.std(x, unbiased=False)
@@ -230,8 +237,19 @@ for representation in ['dschuster16', 'schuster8']:
                     else:
                         x_train = torch.cat([x_train_mon, x_train_NOTA])
                         y_train = torch.cat([y_train_mon, y_train_NOTA])
-                    outputs = model(x_train, training=True)
-                    data_term = criterion(outputs, y_train.to(device))
+                        
+                    # apply mixup
+                    lam = numpy.random.beta(MIXUP_HYPERPARAMETERS[representation + '_' + protocol]['alpha'],
+                                            MIXUP_HYPERPARAMETERS[representation + '_' + protocol]['alpha'])
+                    # shuffle
+                    batch_size = x_train.size(0)
+                    index = torch.randperm(batch_size).to(device)
+                    mixed_x = lam * x_train + (1 - lam) * x_train[index, :]
+                    y_train = y_train.to(device)
+                    mixed_y = lam * y_train + (1 - lam) * y_train[index, :]
+                    
+                    outputs = model(mixed_x, training=True)
+                    data_term = criterion(outputs, mixed_y)
                     #print('data term', str(data_term.item()), end = ' ')
                     gaussian_prior_term = get_kl_loss(model) / len(x_train)
                     #print('Gaussian prior term', str(gaussian_prior_term.item()), end = ' ')

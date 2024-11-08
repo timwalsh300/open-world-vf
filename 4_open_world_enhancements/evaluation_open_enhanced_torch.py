@@ -135,7 +135,8 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # and monitored only + NOTA methods of training data augmentation
     if (approach == 'baseline' or
        approach == 'baseline_mixup' or
-       approach == 'baseline_nota'):
+       approach == 'baseline_nota' or
+       approach == 'baseline_mixup_nota'):
         model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
@@ -158,6 +159,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         if trial == 0:
             try:
                 # print('ECE', check_calibration(scores, test_loader, approach, protocol))
+                pass
             except:
                 pass
         return preds, scores
@@ -188,6 +190,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         if trial == 0:
             try:
                 # print('ECE', check_calibration(scores, test_loader, approach, protocol))
+                pass
             except:
                 pass
         return preds, scores
@@ -224,6 +227,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         if trial == 0:
             try:
                 # print('ECE', check_calibration(scores, test_loader, approach, protocol))
+                pass
             except:
                 pass
         return preds, scores
@@ -235,7 +239,8 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # and monitored only + NOTA methods of training data augmentation
     elif (approach == 'sscd' or
          approach == 'sscd_mixup' or
-         approach == 'sscd_nota'):
+         approach == 'sscd_nota' or
+         approach == 'sscd_mixup_nota'):
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
@@ -244,6 +249,7 @@ def get_scores(test_loader, protocol, representation, approach, trial):
         if trial == 0:
             try:
                 # print('ECE', check_calibration(scores, test_loader, approach, protocol))
+                pass
             except:
                 pass
         return preds, scores
@@ -257,7 +263,8 @@ def get_scores(test_loader, protocol, representation, approach, trial):
     # due to a lack of training data, i.e. they are unknown at training time 
     elif (approach == 'sscd_uncertainty' or
          approach == 'sscd_mixup_uncertainty' or
-         approach == 'sscd_nota_uncertainty'):
+         approach == 'sscd_nota_uncertainty' or
+         approach == 'sscd_mixup_nota_uncertainty'):
         model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
@@ -393,7 +400,7 @@ def get_uncertainty(test_loader, model):
 print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-for protocol in ['https', 'tor']:
+for protocol in ['https']:
     for representation in ['dschuster16', 'schuster8']:
         try:
             val_tensors = torch.load(representation + '_' + protocol + '_val_tensors.pt')
@@ -430,16 +437,19 @@ for protocol in ['https', 'tor']:
         # need to run ten trials for every approach every time we add
         # a new approach, but we can run an approach again and overwrite
         # whatever was already saved for it
-        #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
-        #    pr_curve_data = pickle.load(handle)
+        with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
+            pr_curve_data = pickle.load(handle)
         
         # These approaches are the top competitors with the baseline
-        for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
-                         'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
+        #for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
+        #                 'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
         #for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
+        #for approach in ['temp_scaling_0.9', 'temp_scaling_0.8', 'temp_scaling_0.7', 'temp_scaling_0.6', 'temp_scaling_0.5', 'temp_scaling_0.4', 'temp_scaling_0.3', 'temp_scaling_0.2', 'temp_scaling_0.1']:
         #for approach in ['baseline', 'temp_scaling_016', 'baseline_monitored', 'temp_scaling_monitored_016']:
         # These approaches are the competitors with monitored-only deterministic MSP
         #for approach in ['baseline_monitored', 'opengan_monitored', 'cssr']:
+        for approach in ['baseline_nota', 'baseline_mixup_nota', 'sscd_nota', 'sscd_nota_uncertainty', 'sscd_mixup_nota', 'sscd_mixup_nota_uncertainty']:
+        #for approach in []:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
@@ -594,26 +604,29 @@ for protocol in ['https', 'tor']:
         #    pickle.dump(pr_curve_data, handle)
 
         # create and save the P-R curve figure for top competitors with the baseline...
-        # colors correspond to decision functions 1-6 and lines correspond to data A(B), ABC(E)
-        #         baseline              baseline_mixup             opengan      opengan_mixup
-        #         sscd       sscd_unc   sscd_mixup  sscd_mixup_unc   
-        colors = ['#000000',            '#000000',                 '#ff0000',   '#ff0000',
-                  '#0066ff', '#00cc00', '#0066ff',  '#00cc00']
-        lines =  ['-',                  ':',                       '-',         ':',
-                  '-',       '-',       ':',        ':']
-        # create and save the P-R curve figure for monitored-only
-        #         baseline_mon opengan_mon  cssr
-        #colors = ['#000000',   '#ff0000',   '#ff9900']
-        #lines =  ['-',         '-',         '-']
-        num_styles = len(lines)
-        num_colors = len(colors)
-        plt.figure(figsize=(16, 12))
-        names = {'baseline': 'MSP (1AB)', 'baseline_mixup': 'MSP + mixup (1ABC)', 'opengan': 'OpenGAN (5ABE)', 'opengan_mixup': 'OpenGAN + mixup (5ABCE)',
-                 'sscd': 'Bayes. MSP (3AB)', 'sscd_uncertainty': 'Bayes. Unc. (4AB)', 'sscd_mixup': 'Bayes. MSP + mixup (3ABC)', 'sscd_mixup_uncertainty': 'Bayes. Unc. + mixup (4ABC)'}
-        for i, (approach, mean_precisions) in enumerate(pr_curve_data.items()):
-            color = colors[i % num_colors]
-            line_style = lines[i % num_styles]
-            plt.plot(common_recall_levels, mean_precisions, label=names[approach], color=color, linestyle=line_style)
+        plt.figure(figsize=(16, 18))
+        # colors correspond to decision functions 1-6 and lines correspond to data A-E
+        displays = {'baseline': ('MSP (1AB)', '#000000', '-'),
+                    'baseline_mixup': ('MSP + mixup (1ABC)', '#000000', ':'),
+                    'opengan': ('OpenGAN (5ABE)', '#ff0000', '-'),
+                    'opengan_mixup': ('OpenGAN + mixup (5ABCE)', '#ff0000', ':'),
+                    'baseline_nota': ('MSP + NOTA (1ABD)', '#000000', '--'),
+                    'baseline_mixup_nota': ('MSP + mixup + NOTA (1ABCD)', '#000000', '-.'),
+                    'sscd': ('Bayes. MSP (3AB)', '#0066ff', '-'),
+                    'sscd_uncertainty': ('Bayes. Unc. (4AB)', '#00cc00', '-'),
+                    'sscd_mixup': ('Bayes. MSP + mixup (3ABC)', '#0066ff', ':'),
+                    'sscd_mixup_uncertainty': ('Bayes. Unc. + mixup (4ABC)', '#00cc00', ':'),
+                    'sscd_nota': ('Bayes. MSP + NOTA', '#0066ff', '--'),
+                    'sscd_nota_uncertainty': ('Bayes. Unc. + NOTA', '#00cc00', '--'),
+                    'sscd_mixup_nota': ('Bayes. MSP + mixup + NOTA (3ABCD)', '#0066ff', '-.'),
+                    'sscd_mixup_nota_uncertainty': ('Bayes. Unc. + mixup + NOTA (4ABCD)', '#00cc00', '-.')}
+        for approach, mean_precisions in pr_curve_data.items():
+            plt.plot(common_recall_levels,
+                     mean_precisions,
+                     label=displays[approach][0],
+                     color=displays[approach][1],
+                     linestyle=displays[approach][2],
+                     linewidth = 4)
         plt.xlabel('Recall', fontsize = 32)
         plt.ylabel('Precision', fontsize = 32)
         protocol_string = 'HTTPS' if protocol == 'https' else 'Tor'
@@ -625,9 +638,7 @@ for protocol in ['https', 'tor']:
         plt.tick_params(axis='both', which='major', labelsize=20)
         plt.xlim(0.25, 1)
         plt.ylim(0.98, 1)
-        #plt.ylim(0.5, 1)
         plt.grid(True)
         plt.savefig('enhanced_pr_curve_' + protocol + '.png', dpi=300)
-        #plt.savefig('enhanced_pr_curve_' + protocol + '_monitored.png', dpi=300)
         pr_curve_data = {}
         print('-------------------------\n')
