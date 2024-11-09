@@ -187,7 +187,7 @@ for representation in ['dschuster16', 'schuster8']:
                                          BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
-                                           path = (representation + '_' + protocol + '_sscd_nota_model' + str(trial) + '.pt'))
+                                           path = (representation + '_' + protocol + '_sscd_mixup_nota_model' + str(trial) + '.pt'))
             # these next two lines are used to apply multi-class labels
             # to the NOTA instances
             NOTA_label = torch.zeros(61)
