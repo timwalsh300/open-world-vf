@@ -36,7 +36,7 @@ INPUT_SHAPES = {'schuster8': (1, 1920),
 BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
                         'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
                         
-NOTA_HYPERPARAMETERS = {'schuster8_tor': {'eps_fraction': 0.2, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.1},
+NOTA_HYPERPARAMETERS = {'schuster8_tor': {'eps_fraction': 0.2, 'pgd_steps': 40, 'alpha': 0.2, 'noise_fraction': 0.1},
                         'dschuster16_https': {'eps_fraction': 0.0004, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.00005}}
 
 # after tuning between 0.01 and 0.5
@@ -163,7 +163,7 @@ for representation in ['dschuster16', 'schuster8']:
         noise_fraction = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['noise_fraction']
         eps_fraction = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['eps_fraction']
         pgd_steps = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['pgd_steps']
-        for trial in range(10):
+        for trial in range(20):
         #for eps_fraction in [0.005, 0.01, 0.015, 0.02]:
         #for eps_fraction in [0.00005, 0.0001, 0.0002, 0.0004, 0.0006, 0.0008, 0.001]:
         # for pgd_steps in [5, 10, 20, 40]:

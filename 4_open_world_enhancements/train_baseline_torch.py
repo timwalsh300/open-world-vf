@@ -73,7 +73,7 @@ for representation in ['dschuster16', 'schuster8']:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
             print(e)
             continue
-        for trial in range(10):
+        for trial in range(20):
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
                                                 BEST_HYPERPARAMETERS[representation + '_' + protocol])
             if BEST_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':

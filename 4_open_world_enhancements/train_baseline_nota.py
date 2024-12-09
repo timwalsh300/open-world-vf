@@ -33,7 +33,7 @@ INPUT_SHAPES = {'schuster8': (1, 1920),
 BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
                         'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
                         
-NOTA_HYPERPARAMETERS = {'schuster8_tor': {'eps_fraction': 0.2, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.1},
+NOTA_HYPERPARAMETERS = {'schuster8_tor': {'eps_fraction': 0.2, 'pgd_steps': 40, 'alpha': 0.2, 'noise_fraction': 0.1},
                         'dschuster16_https': {'eps_fraction': 0.0004, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.00005}}
 
 def pgd_attack(baseline_model, x, y, pgd_steps, eps_fraction):
@@ -107,7 +107,7 @@ class EarlyStopping:
         if self.verbose:
             #self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
             self.trace_func(f'Validation PR-AUC increased ({self.val_loss_min:.6f} --> {val_loss:.6f})...')
-        #torch.save(model.state_dict(), self.path)
+        torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
 
 print(torch.cuda.is_available())
@@ -151,17 +151,17 @@ for representation in ['dschuster16', 'schuster8']:
             print(e)
             continue
         
-        trial = 0
+        #trial = 0
         alpha = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['alpha']
-        #noise_fraction = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['noise_fraction']
-        #eps_fraction = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['eps_fraction']
+        noise_fraction = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['noise_fraction']
+        eps_fraction = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['eps_fraction']
         pgd_steps = NOTA_HYPERPARAMETERS[representation + '_' + protocol]['pgd_steps']
-        #for trial in range(10):
-        for eps_fraction in [0.01, 0.03, 0.05, 0.07, 0.1]:
+        for trial in range(20):
+        #for eps_fraction in [0.01, 0.03, 0.05, 0.07, 0.1]:
         #for eps_fraction in [0.00005, 0.0001, 0.0002, 0.0004, 0.0006, 0.0008, 0.001]:
         # for pgd_steps in [5, 10, 20, 40]:
-        #  for alpha in [0.05, 0.2]:
-           for noise_fraction in [0.01, 0.03, 0.05, 0.07, 0.1]:
+        # for alpha in [0.05, 0.2]:
+        #  for noise_fraction in [0.01, 0.03, 0.05, 0.07, 0.1]:
         #  for noise_fraction in [0.00005, 0.0001, 0.0002, 0.0004, 0.0006, 0.0008, 0.001]:
             # load the pre-trained baseline model which we'll use during PGD
             baseline_model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
@@ -288,7 +288,7 @@ for representation in ['dschuster16', 'schuster8']:
                     tsne_results = tsne.fit_transform(x_batches_np_flattened)
                     plt.figure(figsize=(16, 12))
                     unique_labels = numpy.unique(y_batches_np)  # Should be [0, 1, 2]
-                    colors = ['blue', 'black', 'green']  # Colors for monitored, unmonitored, and NOTA
+                    colors = ['black', 'gray', 'blue']  # Colors for monitored, unmonitored, and NOTA
                     labels_dict = {0: 'Monitored', 1: 'Unmonitored', 2: 'NOTA'}  # Labels for the legend
                     # Plot each category with its own color and label
                     for i, label in enumerate(unique_labels):

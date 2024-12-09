@@ -9,6 +9,7 @@ import mymodels_torch
 import numpy
 from bayesian_torch.models.dnn_to_bnn import get_kl_loss
 import sys
+from sklearn.metrics import precision_recall_curve, auc
 
 protocol = sys.argv[1]
 
@@ -71,13 +72,13 @@ for representation in ['dschuster16', 'schuster8']:
                                                        batch_size = BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size'],
                                                        shuffle=False)
             val_loader = torch.utils.data.DataLoader(val_dataset,
-                                                     batch_size = len(val_dataset),
+                                                     batch_size = 64,
                                                      shuffle=False)
         except Exception as e:
             # we expect to hit this condition for schuster8_https and dschuster16_tor
             continue
 
-        for trial in range(9,10):
+        for trial in range(20):
             global_val_loss_min = numpy.Inf
             model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation], 61,
                                                   BEST_HYPERPARAMETERS[representation + '_' + protocol],
@@ -116,15 +117,35 @@ for representation in ['dschuster16', 'schuster8']:
                     loss.backward()
                     optimizer.step()
 
+                # check performance on NOTA
+                # instances and the validation set
                 val_loss = 0.0
-                model.eval()
+                all_y_val_binary = []
+                all_preds_val_binary = []
                 with torch.no_grad():
+                    model.eval()
+                    #output = model(x_train_NOTA, training = False)
+                    #preds = torch.softmax(output, dim=1)
+                    #preds_binary, _ = torch.max(preds[:, :60], dim=1)
+                    #mean_pred_NOTA = preds_binary.detach().cpu().mean()
+                
                     for x_val, y_val in val_loader:
-                        outputs = model(x_val.to(device))
-                        loss = criterion(outputs, y_val.to(device))
+                        logits_val = model(x_val.to(device), training = False)
+                        loss = criterion(logits_val, y_val.to(device))
                         val_loss += loss.item()
+                        y_val_binary = 1 - y_val[:, 60]
+                        all_y_val_binary.append(y_val_binary.cpu())
+                        preds_val = torch.softmax(logits_val, dim=1)
+                        preds_val_binary, _ = torch.max(preds_val[:, :60], dim=1)
+                        all_preds_val_binary.append(preds_val_binary.cpu())
+                        
+                # compute PR-AUC over the validation set
+                all_y_val_binary = torch.cat(all_y_val_binary)
+                all_preds_val_binary = torch.cat(all_preds_val_binary)
+                precisions, recalls, thresholds = precision_recall_curve(all_y_val_binary.numpy(), all_preds_val_binary.numpy())
+                pr_auc = auc(recalls, precisions)
 
-                print(f'Epoch {epoch+1} \t Training Loss: {training_loss / len(train_dataset)} \t Validation Loss: {val_loss / len(val_dataset)}')
+                print(f'Epoch {epoch+1} \t Training loss: {training_loss / len(train_dataset)} \t Val Loss: {val_loss / len(val_dataset)} \t Val PR-AUC: {pr_auc}')
                 # check if this is a new low validation loss to increment
                 # the counter towards the patience limit, but only save the
                 # model if this is a new best for any value of the

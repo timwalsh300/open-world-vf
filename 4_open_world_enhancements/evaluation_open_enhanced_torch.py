@@ -1,10 +1,10 @@
-# This takes no arguments on the command line. It
+# This takes argument for protocol to evaluate. It
 # loads the trained model(s), dataset splits,
 # and does the evaluation.
 #
 # Outputs are the open-world performance as the
 # average precision-recall curve and various
-# metrics over ten trials on the 64k test set
+# metrics over 20 trials on the 64k test set
 
 import torch
 import mymodels_torch
@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.interpolate import interp1d
 import pickle
+import sys
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
@@ -24,13 +25,20 @@ BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv
                             'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
 
 pr_curve_data = {}
-    
+
 common_recall_levels = numpy.linspace(0, 1, 500)
 
 PLOT_MSP_DIST = False
 msp_dist_data = {}
 
 PLOT_CSSR_DIST = False
+
+# this stores the Bayesian model average after
+# doing inference with mc_samples, so that we can
+# use the same Bayesian model average to report
+# either MSP or uncertainty (entropy) as the decision
+# function or score
+sscd_preds_avg = {}
 
 # for the CSSR approach, this creates and saves a bar chart for each
 # autoencorder's mean, normalized reconstruction error for monitored
@@ -245,14 +253,15 @@ def get_scores(test_loader, protocol, representation, approach, trial):
                                             61,
                                             BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
         model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach + '_model' + str(trial) + '.pt'))
-        preds, scores = get_bayesian_msp(test_loader, model, 61)
+        preds_avg, scores = get_bayesian_msp(test_loader, model, 61)
         if trial == 0:
             try:
                 # print('ECE', check_calibration(scores, test_loader, approach, protocol))
                 pass
             except:
                 pass
-        return preds, scores
+        sscd_preds_avg[approach + str(len(test_loader)) + str(trial)] = preds_avg
+        return preds_avg, scores
 
     # this loads a trained Spike and Slab Dropout model with Concrete Dropout layers before
     # using total uncertainty to rank predictions
@@ -265,11 +274,36 @@ def get_scores(test_loader, protocol, representation, approach, trial):
          approach == 'sscd_mixup_uncertainty' or
          approach == 'sscd_nota_uncertainty' or
          approach == 'sscd_mixup_nota_uncertainty'):
-        model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
-                                            61,
-                                            BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
-        model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach[:-12] + '_model' + str(trial) + '.pt'))
-        return get_uncertainty(test_loader, model)
+        if approach[:-12] + str(len(test_loader)) in sscd_preds_avg:
+            preds_avg = sscd_preds_avg[approach[:-12] + str(len(test_loader)) + str(trial)]
+            del sscd_preds_avg[approach[:-12] + str(len(test_loader)) + str(trial)]
+        else:
+            model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation],
+                                                    61,
+                                                    BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+            model.load_state_dict(torch.load(representation + '_' + protocol + '_' + approach[:-12] + '_model' + str(trial) + '.pt'))
+            preds_avg, _ = get_bayesian_msp(test_loader, model, 61)
+        scores = []
+        for i in range(len(preds_avg)):
+            # compute the total uncertainty for each test instance as the entropy
+            # of the predicted probabilities for only the monitored classes 0-59
+            #
+            # we distribute the predicted probability mass for the unmonitored
+            # class across the monitored classes to ensure that a highly confident
+            # prediction of unmonitored doesn't yield near-zero entropy
+            # across the monitored classes, which would be indistinguishable
+            # from a highly confident prediction for a monitored class
+            unmon_prob = preds_avg[i][60]
+            distributed_prob = unmon_prob / 60
+            adjusted_probs = preds_avg[i][:60] + distributed_prob
+            adjusted_probs = numpy.where(adjusted_probs == 0, 1e-9, adjusted_probs)
+            # we negate the entropy because precision_recall_curve() expects
+            # a higher score to be associated with a higher confidence prediction
+            # for the positive class, but a high uncertainty is a low confidence
+            # prediction...
+            negative_entropy = numpy.sum(adjusted_probs * numpy.log(adjusted_probs))
+            scores.append(negative_entropy)
+        return preds_avg, scores
 
     # this loads a trained baseline model and OpenGAN discriminator and returns
     # the predictions and scores from the discriminator
@@ -362,45 +396,10 @@ def get_bayesian_msp(test_loader, model, classes):
             scores.append(max(preds_avg[i][:60]))
         return preds_avg, scores
 
-def get_uncertainty(test_loader, model):
-        model.to(device)
-        model.eval()
-        mc_samples = 10
-        preds = numpy.zeros([mc_samples, len(test_loader.dataset), 61])
-        for i in range(mc_samples):
-            logits_batches = []
-            for x_test, y_test in test_loader:
-                with torch.no_grad():
-                    logits_batches.append(model(x_test.to(device), training = True).to('cpu'))
-            logits_concatenated = torch.cat(logits_batches, dim = 0)
-            preds[i] = torch.softmax(logits_concatenated, dim=1).detach().numpy()
-        preds_avg = preds.mean(axis = 0)
-        scores = []
-        for i in range(len(preds_avg)):
-            # compute the total uncertainty for each test instance as the entropy
-            # of the predicted probabilities for only the monitored classes 0-59
-            #
-            # we distribute the predicted probability mass for the unmonitored
-            # class across the monitored classes to ensure that a highly confident
-            # prediction of unmonitored doesn't yield near-zero entropy
-            # across the monitored classes, which would be indistinguishable
-            # from a highly confident prediction for a monitored class
-            unmon_prob = preds_avg[i][60]
-            distributed_prob = unmon_prob / 60
-            adjusted_probs = preds_avg[i][:60] + distributed_prob
-            adjusted_probs = numpy.where(adjusted_probs == 0, 1e-9, adjusted_probs)
-            # we negate the entropy because precision_recall_curve() expects
-            # a higher score to be associated with a higher confidence prediction
-            # for the positive class, but a high uncertainty is a low confidence
-            # prediction...
-            negative_entropy = numpy.sum(adjusted_probs * numpy.log(adjusted_probs))
-            scores.append(negative_entropy)
-        return preds_avg, scores
-
 print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-for protocol in ['https']:
+for protocol in ['https', 'tor']:
     for representation in ['dschuster16', 'schuster8']:
         try:
             val_tensors = torch.load(representation + '_' + protocol + '_val_tensors.pt')
@@ -421,6 +420,7 @@ for protocol in ['https']:
             test_loader = torch.utils.data.DataLoader(test_dataset,
                                                       batch_size=128,
                                                       shuffle=False)
+            print('len(test_loader) is', len(test_loader))
             y_test_batches = []
             for _, y_test in test_loader:
                 y_test_batches.append(y_test)
@@ -437,25 +437,24 @@ for protocol in ['https']:
         # need to run ten trials for every approach every time we add
         # a new approach, but we can run an approach again and overwrite
         # whatever was already saved for it
-        with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
-            pr_curve_data = pickle.load(handle)
+        #with open('pr_curve_data_' + protocol + '.pkl', 'rb') as handle:
+        #    pr_curve_data = pickle.load(handle)
         
         # These approaches are the top competitors with the baseline
-        #for approach in ['baseline', 'baseline_mixup', 'opengan', 'opengan_mixup',
-        #                 'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty']:
+        for approach in ['baseline', 'baseline_mixup', 'baseline_nota', 'baseline_mixup_nota', 'opengan', 'opengan_mixup',
+                         'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty', 'sscd_nota', 'sscd_nota_uncertainty', 'sscd_mixup_nota', 'sscd_mixup_nota_uncertainty']:
         #for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
         #for approach in ['temp_scaling_0.9', 'temp_scaling_0.8', 'temp_scaling_0.7', 'temp_scaling_0.6', 'temp_scaling_0.5', 'temp_scaling_0.4', 'temp_scaling_0.3', 'temp_scaling_0.2', 'temp_scaling_0.1']:
         #for approach in ['baseline', 'temp_scaling_016', 'baseline_monitored', 'temp_scaling_monitored_016']:
         # These approaches are the competitors with monitored-only deterministic MSP
         #for approach in ['baseline_monitored', 'opengan_monitored', 'cssr']:
-        for approach in ['baseline_nota', 'baseline_mixup_nota', 'sscd_nota', 'sscd_nota_uncertainty', 'sscd_mixup_nota', 'sscd_mixup_nota_uncertainty']:
         #for approach in []:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
             trial_t_75_FPRs = []
             trial_accuracies = []
-            for trial in range(10):
+            for trial in range(20):
                 print('Getting scores for', protocol, approach, '... Trial', trial)
                 
                 # find t_50 on the validation set for this model
@@ -598,9 +597,10 @@ for protocol in ['https']:
             plt.savefig('temp_scaling_monitored_msp_dist_' + protocol + '.png', dpi=300)
 
         # save this for future runs, so we don't have to do
-        # ten trials for every approach every time we add
-        # a new approach
-        #with open('pr_curve_data_' + protocol + '.pkl', 'wb') as handle:
+        # 20 trials for every approach every time we add
+        # a new approach, or want to plot a slightly different
+        # curve figure
+        #with open('pr_curve_data_' + protocol + '_20_trials.pkl', 'wb') as handle:
         #    pickle.dump(pr_curve_data, handle)
 
         # create and save the P-R curve figure for top competitors with the baseline...

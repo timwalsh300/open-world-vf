@@ -123,7 +123,7 @@ for representation in ['dschuster16', 'schuster8']:
         #    print('...lambda_fm =', lambda_fm)
         #for lambda_e in [1, 2, 3, 4, 5]:
         #    print('...lambda_e =', lambda_e)
-        for trial in range(10):
+        for trial in range(20):
             #print('...lambda_g =', lambda_g)
             print('...trial', trial)
             # load the pre-trained model that does feature extraction

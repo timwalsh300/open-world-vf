@@ -37,8 +37,12 @@ INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
 
 # we manually copy and paste these hyperparameters from the output of search_open.py
-BEST_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
+BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
                         'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
+
+# after tuning between 0.01 and 0.5
+MIXUP_HYPERPARAMETERS = {'schuster8_tor': {'alpha': 0.1},
+                        'dschuster16_https': {'alpha': 0.05}}
 
 def glorot_uniform(m):
     if type(m) == torch.nn.Linear:
@@ -52,7 +56,7 @@ class EarlyStopping:
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
-        self.best_score = None
+        self.BASELINE_score = None
         self.early_stop = False
         self.val_loss_min = numpy.Inf
         self.delta = delta
@@ -60,16 +64,16 @@ class EarlyStopping:
         self.trace_func = trace_func
     def __call__(self, val_loss, model):
         score = -val_loss
-        if self.best_score is None:
-            self.best_score = score
+        if self.BASELINE_score is None:
+            self.BASELINE_score = score
             self.save_checkpoint(val_loss, model)
-        elif score < self.best_score + self.delta:
+        elif score < self.BASELINE_score + self.delta:
             self.counter += 1
             self.trace_func(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
-            self.best_score = score
+            self.BASELINE_score = score
             self.save_checkpoint(val_loss, model)
             self.counter = 0
     def save_checkpoint(self, val_loss, model):
@@ -97,13 +101,13 @@ for representation in ['dschuster16', 'schuster8']:
             # training dataset is about 1:2, so we adjust the batch sizes correspondingly
             # for the monitored and unmonitored dataloaders
             train_mon_loader = torch.utils.data.DataLoader(train_mon_dataset,
-                                                       batch_size = int(0.33 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                                                       batch_size = int(0.33 * BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # further adjust the number of real unmonitored instances
             # by 1 - lambda_g
             try:
                 train_unmon_loader = torch.utils.data.DataLoader(train_unmon_dataset,
-                                                       batch_size = int((1 - lambda_g) * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                                                       batch_size = int((1 - lambda_g) * 0.67 * BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # this is a workaround for the fact that the batch size can't be 0,
             # but we want to effectively put a weight of 0 on real unmonitored
@@ -127,29 +131,29 @@ for representation in ['dschuster16', 'schuster8']:
         #    print('...lambda_fm =', lambda_fm)
         #for lambda_e in [1, 2, 3, 4, 5]:
         #    print('...lambda_e =', lambda_e)
-        for trial in range(10):
+        for trial in range(20):
             #print('...lambda_g =', lambda_g)
             print('...trial', trial)
             # load the pre-trained model that does feature extraction
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                                 61,
-                                                BEST_HYPERPARAMETERS[representation + '_' + protocol])
+                                                BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
             model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
             model.to(device)
             model.eval()     
             # instantiate the discriminator
             netD = mymodels_torch.DiscriminatorDFNet_fea(INPUT_SHAPES[representation],
                                                          61,
-                                                         BEST_HYPERPARAMETERS[representation + '_' + protocol])
-            if BEST_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
+                                                         BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+            if BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
                 netD.apply(glorot_uniform)
             netD.to(device)
             optimizerD = torch.optim.Adam(netD.parameters(),
-                                          lr=BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
+                                          lr=BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             criterionD = torch.nn.CrossEntropyLoss()
             # instantiate the generator
             netG = mymodels_torch.GeneratorDFNet_fea(INPUT_SHAPES[representation],
-                                                     BEST_HYPERPARAMETERS[representation + '_' + protocol])
+                                                     BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
             netG.to(device)
             optimizerG = torch.optim.Adam(netG.parameters(), lr=0.0001)
             criterionG = torch.nn.BCEWithLogitsLoss()
@@ -186,7 +190,7 @@ for representation in ['dschuster16', 'schuster8']:
                     # balance of the number of real unmonitored instances
                     # while maintaining a ratio of 1:2 real monitored to
                     # real unmonitored + fake monitored
-                    noise = torch.randn(int(lambda_g * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                    noise = torch.randn(int(lambda_g * 0.67 * BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                         100, device=device)
                     netG.eval()
                     fake_features = netG(noise).detach()
@@ -210,7 +214,8 @@ for representation in ['dschuster16', 'schuster8']:
                     # only update the discriminator every few epochs
                     if epoch % lambda_e == 0:
                         # the next seven lines implement mixup
-                        lam = numpy.random.beta(0.1, 0.1)
+                        alpha = MIXUP_HYPERPARAMETERS[representation + '_' + protocol]['alpha']
+                        lam = numpy.random.beta(alpha, alpha)
                         batch_size = features.size(0)
                         index = torch.randperm(batch_size)
                         mixed_features = lam * features + (1 - lam) * features[index, :]
