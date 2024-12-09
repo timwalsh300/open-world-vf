@@ -1,4 +1,4 @@
-### This repository contains the steps and code to reproduce the work for "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (to be presented at the SecWeb 2024 workshop) and my dissertation.
+### This repository contains the steps and code to reproduce the work for "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (presented at the SecWeb 2024 workshop) and my dissertation.
 
 This is a work-in-progress through at least mid-2025, and intended only for academic research purposes. The sister repository with the code (and lists of our URLs) for our dataset collection effort is https://github.com/timwalsh300/tor-browser-crawler-video
 
@@ -16,60 +16,58 @@ Due to the considerable size of the raw dataset, to make it available while mini
 
 ### Explanation of the parts of this repository (and my to-do list):
 
-0_raw_to_csv: Launch separate batch jobs by modifying the monitored_raw_to_csv.sh script for every combination of representation, protocol, and platform to turn the raw dataset into initial .csv files.
+0_raw_to_csv: This is the code for parsing the .pcap files from the crawler(s) and turning them into .csv files for each per packet or per time step data representation that we tried. Launch separate Slurm batch jobs by modifying the monitored_raw_to_csv.sh script for every combination of representation, protocol, and platform.
 
-- [x] sirinam_wf, sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8, schuster16, dschuster16
+- [x] sirinam_wf, sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8, schuster16, dschuster16 for all protocols and platforms
 
-1_csv_to_pkl: From an interactive session with 128 GB of memory, run the csv_to_pkl.py script with no arguments to turn all the initial .csv files into intermediate .csv files and .pkl files with the closed-world train/val/test splits.
+1_csv_to_pkl: This is the code that converts the .csv files into closed-world train/val/test splits in the form of NumPy arrays, and then saves those arrays to disk using pickle. From an interactive session with 128 GB of memory, run the csv_to_pkl.py script with no arguments. The process also creates some intermediate .csv files.
 
-- [x] sirinam_wf, sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8, schuster16, dschuster16
+- [x] sirinam_wf, sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8, schuster16, dschuster16 for all protocols and platforms
 
-2_closed_world: Launch separate batch jobs by modifying the search.sh script for every combination of representation, protocol, and platform to find good hyperparameters with Ray Tune. Look at the tail of the .out files to see the best hyperparameters found and copy them into the dictionary in the evaluation.py script. Launch a batch job with evaluation.sh and look at the .out file to see the number of epochs, training time, and test set accuracy for each model.
+2_closed_world: This is the code for tuning, training, and testing our closed-world models. Launch separate Slurm batch jobs by modifying the search.sh script for every combination of representation, protocol, and platform to find good hyperparameters with Ray Tune. Look at the tail of the .out files to see the best hyperparameters found and copy them into the dictionary in the evaluation.py script. Launch a Slurm batch job with evaluation.sh and look at the .out file to see the results of training and testing each model.
 
-- [x] Ray Tune search for dschuster16, schuster16, rschuster8, dschuster8, schuster8, schuster4, schuster2, hayden, rahman, sirinam_vf
+- [x] Ray Tune searches for sirinam_vf, rahman, hayden, schuster2, schuster4, schuster8, dschuster8, schuster16, dschuster16 for all protocols and platforms
 
-- [x] put all best found hyperparameters into evaluation.py
+- [x] Evaluation of all representations, protocols, and platforms
 
-- [x] evaluation batch job for all
+3_open_world_baseline: This is the code for our baseline open-world experiments. Modify and run the 0_raw_to_csv/unmonitored_raw_to_csv.sh script for best data representations found for Vimeo through our closed-world experiments. Create open-world train/val/test splits with csv_to_pkl_open.py for both protocols. Modify and run search_open.sh to do hyperparameter searches again with Ray Tune. Copy the best found hyperparameters into train_open.py and run that to train and save the models. Run evaluation_open.py to get precision-recall curve figures and results (at various thresholds) for precision, recall, F1, false positives, and false positive rate on the 1k to 64k test sets.
 
-3_open_world_baseline: 61-way classification task with the best representation(s) only. Modify and run the 0_raw_to_csv/unmonitored_raw_to_csv.sh script for best closed-world data representations. Create train/val/test splits with csv_to_pkl_open.py for both HTTPS and Tor. Modify and run search_open.sh to do hyperparameter searches with Ray Tune. Copy best found hyperparameters into train_open.py and run that to train and save the models. Output P-R curve figures and results for P, R, F1, FP, FPR on test sets 1k to 64k after choosing thresholds using the validation set with evaluation_open.py.
+- [x] Parse unmonitored captures, create train/val/test sets for schuster8 (Tor) and dschuster16 (HTTPS-only)
 
-- [x] parsing unmonitored set, creating train/val/test sets, for schuster8 (Tor) and dschuster16 (HTTPS)
+- [x] Complete hyperparameter search and training for for Tor and HTTPS-only models
 
-- [x] hyperparameter search, training for dschuster16 (HTTPS), schuster8 (Tor)
+- [x] Select thresholds based on zero false positives, maximum F1 score, and 0.5 recall over the validation set and evaluate on the 1k to 64k test sets
 
-- [x] produce P-R curves over validation and test sets
+4_open_world_enhancements: This is the code for our adaptation and experimentation with a number of more recent or advanced techniques and approaches that attempt to address the theoretical shortcomings of the baseline, existing approach to the open-world / open set recognition task.
 
-- [x] select thresholds based on max F1, zero FP, and 0.5 R over the validation set
+- [x] Temperature scaling for calibrated MSP and further separation of in- and out-of-distribution instances with Standard Model
 
-4_open_world_enhancements: Experiment with a number of more sophisticated methods attempting to address the theoretical shortcomings of the baseline, existing approach to the open-world / open set recognition task.
+- [x] Spike-and-Slab, Concrete Dropout for Bayesian model average MSP and total uncertainty with Standard Model
 
-- [x] Temperature scaling, threshold for calibrated max softmax probability
+- [x] mixup for training data augmentation, all pairs with Standard Model, both deterministic and Bayesian models
 
-- [x] Monte Carlo Dropout, Spike-and-Slab Concrete Dropout, threshold for Bayesian model averaged max softmax probability, total uncertainty, and epistemic uncertainty, with Standard Model / Background Class
+- [x] NOTA defensive padding for training data augmentation, untargeted and targeted adversarial examples with PGD, mean and uniform (weighted average) padding between original and adversarial examples, with Standard Model, also combined with mixup and both deterministic and Bayesian models
 
-- [x] mixup for training data augmentation, all pairs with Standard Model
+- [x] GAN-trained discriminator, augmentation of training data with generated fakes, threshold for discriminator prediction (i.e. OpenGAN), with Standard Model, also combined with mixup
 
-- [ ] NOTA defensive padding for training data augmentation, untargeted and targeted adversarial examples with PGD, mean and uniform (weighted average) padding between original and adversarial examples
-
-- [x] GAN-trained discriminator / augmentation of training data with generated fakes, threshold for discriminator prediction, also with mixup (but we might re-visit that)
-
-- [x] Class-specific autoencoders, threshold for reconstruction error
+- [x] Class-specific autoencoders, threshold for reconstruction error (i.e. CSSR)
 
 - [ ] Precision optimizers from Laserbeak?
 
 5_across_vantage_points
 
-- [x] Create new closed-world training, validation, and test sets from all vantage points and hosting platforms. Train and test across all pairs of vantage points, ten trials each, both baseline_monitored (1A) approach and OpenGAN (5AE, lambda_g = 1.0)
+- [x] New closed-world train/val/test sets for from all vantage points, protocols, and hosting platforms using best data representations from early closed-world experimentation.
 
-- [x] Test Vimeo models trained at each vantage point on us-west-2 64k open-world test sets
+- [x] Train and test across all pairs of vantage points, ten trials each, in the closed-world task
+
+- [x] Open-world test of Vimeo models trained at each vantage point on us-west-2 64k test sets, baseline approach without Standard Model
+
+- [x] Train OpenGAN models (without Standard Model, using baseline closed-world models as feature extractors) from each vantage point, and test on us-west-2 64k test sets
 
 - [ ] Train on data sampled from all vantage points except us-west-2, of increasing size up to 10x the original training set, and test on us-west-2 64k open-world test sets
 
-6_across_hosting_platforms
+6_video_lengths
 
-- [ ] Train on the 10 identical math instruction videos streamed from each hosting platform, and test closed-world on same videos streamed from the other hosting platforms, open-world streamed from Vimeo
+- [ ] Truncate all traffic flows in us-west-2 Vimeo open-world splits to 0:30, 1:00, 1:30, 2:00, 2:30, 3:00, and 3:30 lengths
 
-7_video_lengths
-
-- [ ] Truncate all traffic flows in us-west-2 Vimeo open-world data splits to 0:30, 1:00, 1:30, 2:00, 2:30, 3:00, 3:30 and repeat training and testing
+- [ ] Tune, train, and test for each length
