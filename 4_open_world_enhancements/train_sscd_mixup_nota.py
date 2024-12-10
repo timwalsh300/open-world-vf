@@ -38,8 +38,8 @@ INPUT_SHAPES = {'schuster8': (1, 1920),
 
 # we manually copy and paste these hyperparameters from the output of search_open.py
 BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
-                        'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
-                        
+                            'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
+
 NOTA_HYPERPARAMETERS = {'schuster8_tor': {'eps_fraction': 0.2, 'pgd_steps': 40, 'alpha': 0.2, 'noise_fraction': 0.1},
                         'dschuster16_https': {'eps_fraction': 0.0005, 'pgd_steps': 40, 'alpha': 0.05, 'noise_fraction': 0.01}}
 

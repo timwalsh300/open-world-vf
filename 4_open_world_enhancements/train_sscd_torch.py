@@ -1,7 +1,7 @@
-# This takes no arguments on the command line
+# This takes one argument for the protocol,
+# either 'https' or 'tor'
 #
-# Outputs are the best trained model for HTTPS-only
-# and the best trained model for Tor using Spike
+# Outputs are the trained models using Spike
 # and Slab Dropout and Concrete Dropout layers
 
 import torch
@@ -17,8 +17,8 @@ INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
 
 # we manually copy and paste these hyperparameters from the output of search_open.py
-BEST_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
-                        'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
+BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
+                            'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
 
 # helpfully provided by ChatGPT, and now modified to support tuning hyperparameters
 class EarlyStopping:
@@ -69,7 +69,7 @@ for representation in ['dschuster16', 'schuster8']:
             val_tensors = torch.load(representation + '_' + protocol + '_val_tensors.pt')
             val_dataset = torch.utils.data.TensorDataset(*val_tensors)
             train_loader = torch.utils.data.DataLoader(train_dataset,
-                                                       batch_size = BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size'],
+                                                       batch_size = BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['batch_size'],
                                                        shuffle=False)
             val_loader = torch.utils.data.DataLoader(val_dataset,
                                                      batch_size = 64,
@@ -81,13 +81,13 @@ for representation in ['dschuster16', 'schuster8']:
         for trial in range(20):
             global_val_loss_min = numpy.Inf
             model = mymodels_torch.DFNetTunableSSCD(INPUT_SHAPES[representation], 61,
-                                                  BEST_HYPERPARAMETERS[representation + '_' + protocol],
+                                                  BASELINE_HYPERPARAMETERS[representation + '_' + protocol],
                                                   w = 1 / 10 * float(len(train_dataset)),
                                                   d = 1 / float(len(train_dataset)))
             model.to(device)
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(model.parameters(),
-                                         BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
+                                         BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
                                            path = (representation + '_' + protocol + '_sscd_model' + str(trial) + '.pt'),

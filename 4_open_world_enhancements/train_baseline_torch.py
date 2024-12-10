@@ -1,17 +1,21 @@
-# This takes no arguments on the command line
+# This takes one argument for the protocol
+# either 'https' or 'tor'
 #
 # Outputs are the trained models.
 
 import torch
 import mymodels_torch
 import numpy
+import sys
+
+protocol = sys.argv[1]
 
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
 
 # we manually copy and paste these hyperparameters from the output of search_open.py
-BEST_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
-                        'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
+BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
+                            'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
 
 def glorot_uniform(m):
     if type(m) == torch.nn.Linear:
@@ -55,7 +59,7 @@ print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 for representation in ['dschuster16', 'schuster8']:
-    for protocol in ['https', 'tor']:
+    #for protocol in ['https', 'tor']:
         try:
             # if they exist, load the data tensors that resulted from raw_to_csv.py,
             # csv_to_pkl.py, csv_to_pkl_open.py, and keras_to_torch_splits.py
@@ -64,7 +68,7 @@ for representation in ['dschuster16', 'schuster8']:
             val_tensors = torch.load(representation + '_' + protocol + '_val_tensors.pt')
             val_dataset = torch.utils.data.TensorDataset(*val_tensors)
             train_loader = torch.utils.data.DataLoader(train_dataset,
-                                                       batch_size = BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size'],
+                                                       batch_size = BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['batch_size'],
                                                        shuffle=False)
             val_loader = torch.utils.data.DataLoader(val_dataset,
                                                      batch_size = len(val_dataset),
@@ -75,13 +79,13 @@ for representation in ['dschuster16', 'schuster8']:
             continue
         for trial in range(20):
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation], 61,
-                                                BEST_HYPERPARAMETERS[representation + '_' + protocol])
-            if BEST_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
+                                                BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+            if BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
                 model.apply(glorot_uniform)
             model.to(device)
             criterion = torch.nn.CrossEntropyLoss()
             optimizer = torch.optim.Adam(model.parameters(),
-                                         BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
+                                         BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             early_stopping = EarlyStopping(patience = 20,
                                            verbose = True,
                                            path = (representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))

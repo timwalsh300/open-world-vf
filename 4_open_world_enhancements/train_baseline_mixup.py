@@ -1,4 +1,5 @@
-# This takes no arguments on the command line
+# This takes one argument for the protocol,
+# either 'https' or 'tor'
 #
 # Outputs are the best trained models for HTTPS-only
 # and Tor using the original Mixup approach
@@ -19,17 +20,17 @@ import matplotlib.pyplot as plt
 INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
 
-#protocol = sys.argv[1]
+protocol = sys.argv[1]
 
 plot_tsne = False
 
 # we manually copy and paste these hyperparameters from the output of search_open.py
 BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
-                        'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
+                            'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
 
 # after tuning between 0.01 and 0.5
 MIXUP_HYPERPARAMETERS = {'schuster8_tor': {'alpha': 0.1},
-                        'dschuster16_https': {'alpha': 0.05}}
+                         'dschuster16_https': {'alpha': 0.05}}
 
 # helpfully provided by ChatGPT, and now modified to support tuning for alpha
 class EarlyStopping:
@@ -71,7 +72,7 @@ print(torch.cuda.is_available())
 print(torch.cuda.get_device_name(0))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 for representation in ['dschuster16', 'schuster8']:
-    for protocol in ['https', 'tor']:
+    #for protocol in ['https', 'tor']:
         try:
             # if they exist, load the data tensors that resulted from raw_to_csv.py,
             # csv_to_pkl.py, csv_to_pkl_open.py, and keras_to_torch_splits.py

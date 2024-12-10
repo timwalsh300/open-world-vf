@@ -8,7 +8,9 @@
 # code, and the discriminator is the fully-connected layers
 # of our DFNet architecture
 #
-# Outputs are the trained discriminators
+# Outputs are the trained discriminators. Optionally, it
+# also outputs t-SNE plots to show the relationship between
+# monitored, unmonitored, and fake instances
 
 import torch
 import mymodels_torch
@@ -33,8 +35,8 @@ INPUT_SHAPES = {'schuster8': (1, 1920),
                 'dschuster16': (2, 3840)}
 
 # we manually copy and paste these hyperparameters from the output of search_open.py
-BEST_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
-                        'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
+BASELINE_HYPERPARAMETERS = {'schuster8_tor': {'filters': 256, 'kernel': 8, 'conv_stride': 1, 'pool': 8, 'pool_stride': 4, 'conv_dropout': 0.1, 'fc_neurons': 128, 'fc_init': 'he_normal', 'fc_activation': 'elu', 'fc_dropout': 0.1, 'lr': 7.191906601911815e-05, 'batch_size': 128},
+                            'dschuster16_https': {'filters': 256, 'kernel': 4, 'conv_stride': 2, 'pool': 8, 'pool_stride': 1, 'conv_dropout': 0.4, 'fc_neurons': 1024, 'fc_init': 'glorot_uniform', 'fc_activation': 'relu', 'fc_dropout': 0.8, 'lr': 0.0005153393428807454, 'batch_size': 64}}
 
 def glorot_uniform(m):
     if type(m) == torch.nn.Linear:
@@ -93,13 +95,13 @@ for representation in ['dschuster16', 'schuster8']:
             # training dataset is about 1:2, so we adjust the batch sizes correspondingly
             # for the monitored and unmonitored dataloaders
             train_mon_loader = torch.utils.data.DataLoader(train_mon_dataset,
-                                                       batch_size = int(0.33 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                                                       batch_size = int(0.33 * BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # further adjust the number of real unmonitored instances
             # by 1 - lambda_g
             try:
                 train_unmon_loader = torch.utils.data.DataLoader(train_unmon_dataset,
-                                                       batch_size = int((1 - lambda_g) * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                                                       batch_size = int((1 - lambda_g) * 0.67 * BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                                        shuffle=False)
             # this is a workaround for the fact that the batch size can't be 0,
             # but we want to effectively put a weight of 0 on real unmonitored
@@ -129,23 +131,23 @@ for representation in ['dschuster16', 'schuster8']:
             # load the pre-trained model that does feature extraction
             model = mymodels_torch.DFNetTunable(INPUT_SHAPES[representation],
                                                 61,
-                                                BEST_HYPERPARAMETERS[representation + '_' + protocol])
+                                                BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
             model.load_state_dict(torch.load(representation + '_' + protocol + '_baseline_model' + str(trial) + '.pt'))
             model.to(device)
             model.eval()     
             # instantiate the discriminator
             netD = mymodels_torch.DiscriminatorDFNet_fea(INPUT_SHAPES[representation],
                                                          61,
-                                                         BEST_HYPERPARAMETERS[representation + '_' + protocol])
-            if BEST_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
+                                                         BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
+            if BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['fc_init'] == 'glorot_uniform':
                 netD.apply(glorot_uniform)
             netD.to(device)
             optimizerD = torch.optim.Adam(netD.parameters(),
-                                          lr=BEST_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
+                                          lr=BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['lr'])
             criterionD = torch.nn.CrossEntropyLoss()
             # instantiate the generator
             netG = mymodels_torch.GeneratorDFNet_fea(INPUT_SHAPES[representation],
-                                                     BEST_HYPERPARAMETERS[representation + '_' + protocol])
+                                                     BASELINE_HYPERPARAMETERS[representation + '_' + protocol])
             netG.to(device)
             optimizerG = torch.optim.Adam(netG.parameters(), lr=0.0001)
             criterionG = torch.nn.BCEWithLogitsLoss()
@@ -182,7 +184,7 @@ for representation in ['dschuster16', 'schuster8']:
                     # balance of the number of real unmonitored instances
                     # while maintaining a ratio of 1:2 real monitored to
                     # real unmonitored + fake monitored
-                    noise = torch.randn(int(lambda_g * 0.67 * BEST_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
+                    noise = torch.randn(int(lambda_g * 0.67 * BASELINE_HYPERPARAMETERS[representation + '_' + protocol]['batch_size']),
                                         100, device=device)
                     netG.eval()
                     fake_features = netG(noise).detach()
