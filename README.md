@@ -54,7 +54,7 @@ Due to the considerable size of the raw dataset, to make it available while mini
 
 - [ ] Precision optimizers from Laserbeak?
 
-5_across_vantage_points
+5_across_vantage_points: This is the code for studying the effectiveness of training and testing models across different geographic vantage points, i.e. where the training set was streamed from one vantage point and the test set was streamed from another.
 
 - [x] New closed-world train/val/test sets for from all vantage points, protocols, and hosting platforms using best data representations from early closed-world experimentation.
 
@@ -66,8 +66,8 @@ Due to the considerable size of the raw dataset, to make it available while mini
 
 - [ ] Train on data sampled from all vantage points except us-west-2, of increasing size up to 10x the original training set, and test on us-west-2 64k open-world test sets
 
-6_video_lengths
+6_video_lengths: This is the code for studying the closed-world vs. open-world performance of models as a function of video lengths or traffic flow lengths.
 
-- [ ] Truncate all traffic flows in us-west-2 Vimeo open-world splits to 0:30, 1:00, 1:30, 2:00, 2:30, 3:00, and 3:30 lengths
+- [x] Truncate all traffic flows in us-west-2 Vimeo open-world splits to 0:30, 1:00, 1:30, 2:00, 2:30, 3:00, and 3:30 lengths
 
-- [ ] Tune, train, and test for each length
+- [x] Tune, train, and test baseline and Bayesian + mixup models for each length
