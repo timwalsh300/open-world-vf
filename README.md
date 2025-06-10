@@ -1,4 +1,8 @@
-### This repository contains the steps and code to reproduce the work for "Improved Open-World Fingerprinting Increases Threat to Streaming Video Privacy but Realistic Scenarios Remain Difficult" (to be presented at the 2025 Privacy Enhancing Technologies Symposium) and "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (presented at the 2024 IEEE S&P Workshop on Designing Security for the Web).
+This repository contains the steps and code to reproduce the work for:
+
+- [x] "Improved Open-World Fingerprinting Increases Threat to Streaming Video Privacy but Realistic Scenarios Remain Difficult" (to be presented at the 2025 Privacy Enhancing Technologies Symposium)
+
+- [x] "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (presented at the 2024 IEEE S&P Workshop on Designing Security for the Web)
 
 This code is intended only for academic research purposes.
 
@@ -26,7 +30,9 @@ Due to the considerable size of the raw dataset, to make it available while mini
 
 3_open_world_baseline: This is the code for our baseline open-world experiments. Modify and run the 0_raw_to_csv/unmonitored_raw_to_csv.sh script for best data representations found for Vimeo through our closed-world experiments. Create open-world train/val/test splits with csv_to_pkl_open.py for both protocols. Modify and run search_open.sh to do hyperparameter searches again with Ray Tune. Copy the best found hyperparameters into train_open.py and run that to train and save the models. Run evaluation_open.py to get precision-recall curve figures and results (at various thresholds) for precision, recall, F1, false positives, and false positive rate on the 1k to 64k test sets.
 
-4_open_world_enhancements: This is the code for our adaptation and experimentation with a number of more recent or advanced techniques and approaches that attempt to address the theoretical shortcomings of the baseline, existing approach to the open-world / open set recognition task: temperature scaling for calibrated MSP and further separation of in- and out-of-distribution instances with Standard Model; 
+4_open_world_enhancements: This is the code for our adaptation and experimentation with a number of more recent or advanced techniques and approaches that attempt to address the theoretical shortcomings of the baseline, existing approach to the open-world / open set recognition task:
+
+- [x] Temperature scaling for calibrated MSP and further separation of in- and out-of-distribution instances with Standard Model; 
 
 - [x] Spike-and-Slab, Concrete Dropout for Bayesian model average MSP and total uncertainty with Standard Model
 
