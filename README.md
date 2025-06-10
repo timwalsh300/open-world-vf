@@ -4,6 +4,8 @@ This repository contains the steps and code to reproduce the work for:
 
 - [x] "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (presented at the 2024 IEEE S&P Workshop on Designing Security for the Web)
 
+- [x] "Open-World Video Stream Fingerprinting" (my dissertation at the Naval Postgraduate School)
+
 This code is intended only for academic research purposes.
 
 The sister repository with the code (and lists of our URLs) for our associated dataset collection effort is https://github.com/timwalsh300/tor-browser-crawler-video
