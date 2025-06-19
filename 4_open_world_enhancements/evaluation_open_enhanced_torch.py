@@ -441,8 +441,8 @@ for protocol in ['https', 'tor']:
         #    pr_curve_data = pickle.load(handle)
         
         # These approaches are the top competitors with the baseline
-        for approach in ['baseline', 'baseline_mixup', 'baseline_nota', 'baseline_mixup_nota', 'opengan', 'opengan_mixup',
-                         'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty', 'sscd_nota', 'sscd_nota_uncertainty', 'sscd_mixup_nota', 'sscd_mixup_nota_uncertainty']:
+        for approach in ['baseline_mixup_nota',
+                         'sscd_mixup']:
         #for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
         #for approach in ['temp_scaling_0.9', 'temp_scaling_0.8', 'temp_scaling_0.7', 'temp_scaling_0.6', 'temp_scaling_0.5', 'temp_scaling_0.4', 'temp_scaling_0.3', 'temp_scaling_0.2', 'temp_scaling_0.1']:
         #for approach in ['baseline', 'temp_scaling_016', 'baseline_monitored', 'temp_scaling_monitored_016']:
@@ -452,7 +452,10 @@ for protocol in ['https', 'tor']:
             trial_scores = []
             trial_best_case_recalls = []
             trial_t_50_FPRs = []
-            trial_t_75_FPRs = []
+            trial_t_60_FPRs = []
+            trial_t_70_FPRs = []
+            trial_t_80_FPRs = []
+            trial_t_90_FPRs = []
             trial_accuracies = []
             for trial in range(20):
                 print('Getting scores for', protocol, approach, '... Trial', trial)
@@ -467,13 +470,37 @@ for protocol in ['https', 'tor']:
                     t_50 = thresholds_val[t_50_index]
                 print('... t_50 validation recall, precision, and threshold are', recalls_val[t_50_index], precisions_val[t_50_index], t_50)
                 
-                # find t_75 on the validation set for this model
-                t_75_index = numpy.argmin(numpy.abs(recalls_val - 0.75))
-                if t_75_index == len(thresholds_val):
-                    t_75 = thresholds_val[-1]
+                # find t_60 on the validation set for this model
+                t_60_index = numpy.argmin(numpy.abs(recalls_val - 0.60))
+                if t_60_index == len(thresholds_val):
+                    t_60 = thresholds_val[-1]
                 else:
-                    t_75 = thresholds_val[t_75_index]
-                print('... t_75 validation recall, precision, and threshold are', recalls_val[t_75_index], precisions_val[t_75_index], t_75)
+                    t_60 = thresholds_val[t_60_index]
+                print('... t_60 validation recall, precision, and threshold are', recalls_val[t_60_index], precisions_val[t_60_index], t_60)
+
+                # find t_70 on the validation set for this model
+                t_70_index = numpy.argmin(numpy.abs(recalls_val - 0.70))
+                if t_70_index == len(thresholds_val):
+                    t_70 = thresholds_val[-1]
+                else:
+                    t_70 = thresholds_val[t_70_index]
+                print('... t_70 validation recall, precision, and threshold are', recalls_val[t_70_index], precisions_val[t_70_index], t_70)
+
+                # find t_80 on the validation set for this model
+                t_80_index = numpy.argmin(numpy.abs(recalls_val - 0.80))
+                if t_80_index == len(thresholds_val):
+                    t_80 = thresholds_val[-1]
+                else:
+                    t_80 = thresholds_val[t_80_index]
+                print('... t_80 validation recall, precision, and threshold are', recalls_val[t_80_index], precisions_val[t_80_index], t_80)
+
+                # find t_90 on the validation set for this model
+                t_90_index = numpy.argmin(numpy.abs(recalls_val - 0.90))
+                if t_90_index == len(thresholds_val):
+                    t_90 = thresholds_val[-1]
+                else:
+                    t_90 = thresholds_val[t_90_index]
+                print('... t_90 validation recall, precision, and threshold are', recalls_val[t_90_index], precisions_val[t_90_index], t_90)
                 
                 # run the model against the test set
                 preds, scores = get_scores(test_loader, protocol, representation, approach, trial)
@@ -509,7 +536,7 @@ for protocol in ['https', 'tor']:
                     
                 preds_binary = []
                 for i in range(len(scores)):
-                    if scores[i] >= t_75:
+                    if scores[i] >= t_60:
                         preds_binary.append(True)
                     else:
                         preds_binary.append(False)
@@ -517,8 +544,53 @@ for protocol in ['https', 'tor']:
                 for i in range(len(preds_binary)):
                     if preds_binary[i] and not true_binary[i]:
                        FP_visits.append(splits['visits_test_64000'].iloc[i])
-                trial_t_75_FPRs.append(len(FP_visits) / 64000)
-                print('... False positives at t_75:', len(FP_visits))
+                trial_t_60_FPRs.append(len(FP_visits) / 64000)
+                print('... False positives at t_60:', len(FP_visits))
+                if len(FP_visits) <= 10:
+                    print(FP_visits)
+                    
+                preds_binary = []
+                for i in range(len(scores)):
+                    if scores[i] >= t_70:
+                        preds_binary.append(True)
+                    else:
+                        preds_binary.append(False)
+                FP_visits = []
+                for i in range(len(preds_binary)):
+                    if preds_binary[i] and not true_binary[i]:
+                       FP_visits.append(splits['visits_test_64000'].iloc[i])
+                trial_t_70_FPRs.append(len(FP_visits) / 64000)
+                print('... False positives at t_70:', len(FP_visits))
+                if len(FP_visits) <= 10:
+                    print(FP_visits)
+                    
+                preds_binary = []
+                for i in range(len(scores)):
+                    if scores[i] >= t_80:
+                        preds_binary.append(True)
+                    else:
+                        preds_binary.append(False)
+                FP_visits = []
+                for i in range(len(preds_binary)):
+                    if preds_binary[i] and not true_binary[i]:
+                       FP_visits.append(splits['visits_test_64000'].iloc[i])
+                trial_t_80_FPRs.append(len(FP_visits) / 64000)
+                print('... False positives at t_80:', len(FP_visits))
+                if len(FP_visits) <= 10:
+                    print(FP_visits)
+            
+                preds_binary = []
+                for i in range(len(scores)):
+                    if scores[i] >= t_90:
+                        preds_binary.append(True)
+                    else:
+                        preds_binary.append(False)
+                FP_visits = []
+                for i in range(len(preds_binary)):
+                    if preds_binary[i] and not true_binary[i]:
+                       FP_visits.append(splits['visits_test_64000'].iloc[i])
+                trial_t_90_FPRs.append(len(FP_visits) / 64000)
+                print('... False positives at t_90:', len(FP_visits))
                 if len(FP_visits) <= 10:
                     print(FP_visits)
             
@@ -537,7 +609,10 @@ for protocol in ['https', 'tor']:
             print('Mean recall at precision of 1.0:', numpy.mean(trial_best_case_recalls), 'StdDev: ', numpy.std(trial_best_case_recalls))
             print('Mean accuracy within monitored:', numpy.mean(trial_accuracies), 'StdDev: ', numpy.std(trial_accuracies))
             print('Mean FPR at t_50:', numpy.mean(trial_t_50_FPRs), 'StdDev: ', numpy.std(trial_t_50_FPRs))
-            print('Mean FPR at t_75:', numpy.mean(trial_t_75_FPRs), 'StdDev: ', numpy.std(trial_t_75_FPRs))
+            print('Mean FPR at t_60:', numpy.mean(trial_t_60_FPRs), 'StdDev: ', numpy.std(trial_t_60_FPRs))
+            print('Mean FPR at t_70:', numpy.mean(trial_t_70_FPRs), 'StdDev: ', numpy.std(trial_t_70_FPRs))
+            print('Mean FPR at t_80:', numpy.mean(trial_t_80_FPRs), 'StdDev: ', numpy.std(trial_t_80_FPRs))
+            print('Mean FPR at t_90:', numpy.mean(trial_t_90_FPRs), 'StdDev: ', numpy.std(trial_t_90_FPRs))
             interpolated_precisions = []
             for trial_score in trial_scores:
                 trial_precision, trial_recall, _ = precision_recall_curve(true_binary, trial_score)
