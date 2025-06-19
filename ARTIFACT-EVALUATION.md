@@ -15,4 +15,4 @@ Our artifact holds no risk to the security or privacy of the reviewer's machine.
 ## Environment 
 
 ### Accessibility (All badges)
-The steps and code are persistently hosted at https://github.com/timwalsh300/open-world-vf under the GNU GPL 3.0 license.
+The steps and code are persistently hosted at [https://github.com/timwalsh300/open-world-vf](https://github.com/timwalsh300/open-world-vf/releases/tag/PETS) under the GNU GPL 3.0 license.
