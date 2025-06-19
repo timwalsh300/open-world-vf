@@ -1,6 +1,6 @@
 ### This repository contains the steps and code to reproduce the work for:
 
-- [x] "Improved Open-World Fingerprinting Increases Threat to Streaming Video Privacy but Realistic Scenarios Remain Difficult" (to be presented at the 2025 Privacy Enhancing Technologies Symposium)
+- [x] "Improved Open-World Fingerprinting Increases Threat to Streaming Video Privacy but Realistic Scenarios Remain Difficult" (to be presented at the 2025 Privacy Enhancing Technologies Symposium, see the "PETS" release tag for the associated artifact)
 
 - [x] "Exploring the Capabilities and Limitations of Video Stream Fingerprinting" (presented at the 2024 IEEE S&P Workshop on Designing Security for the Web)
 
