@@ -441,8 +441,9 @@ for protocol in ['https', 'tor']:
         #    pr_curve_data = pickle.load(handle)
         
         # These approaches are the top competitors with the baseline
-        for approach in ['baseline_mixup_nota',
-                         'sscd_mixup']:
+        for approach in ['baseline', 'baseline_mixup', 'baseline_nota', 'baseline_mixup_nota', 'opengan', 'opengan_mixup',
+                         'sscd', 'sscd_uncertainty', 'sscd_mixup', 'sscd_mixup_uncertainty', 'sscd_nota', 'sscd_nota_uncertainty',
+                         'sscd_mixup_nota', 'sscd_mixup_nota_uncertainty']:
         #for approach in ['temp_scaling_001', 'temp_scaling_002', 'temp_scaling_004', 'temp_scaling_008', 'temp_scaling_016', 'temp_scaling_032', 'temp_scaling_064', 'temp_scaling_128', 'temp_scaling_256']:
         #for approach in ['temp_scaling_0.9', 'temp_scaling_0.8', 'temp_scaling_0.7', 'temp_scaling_0.6', 'temp_scaling_0.5', 'temp_scaling_0.4', 'temp_scaling_0.3', 'temp_scaling_0.2', 'temp_scaling_0.1']:
         #for approach in ['baseline', 'temp_scaling_016', 'baseline_monitored', 'temp_scaling_monitored_016']:
